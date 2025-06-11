@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Relés</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌱 Controle de Relés</h1>
+            <p class="subtitle">Sistema de Automação</p>
+        </header>
+
+        <div class="status-bar">
+            <span id="wifi-strength">WiFi: --</span>
+            <span id="current-temp">Temperatura: --°C</span>
+            <span id="current-time">--:--:--</span>
+        </div>
+
+        <div class="main-content">
+            <div class="chart-section">
+                <h2>Parâmetros Hidropônicos</h2>
+                <div class="temp-display">Temperatura: <span id="temp-value">--</span>°C</div>
+                <div class="current-values">
+                    <div class="value-box">
+                        <span class="value-label">pH</span>
+                        <span id="ph-value">--</span>
+                    </div>
+                    <div class="value-box">
+                        <span class="value-label">EC</span>
+                        <span id="ec-value">--</span>
+                        <span class="unit">µS/cm</span>
+                    </div>
+                    <div class="value-box">
+                        <span class="value-label">TDS</span>
+                        <span id="tds-value">--</span>
+                        <span class="unit">ppm</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="sensorChart"></canvas>
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <h2>Controles</h2>
+                <div id="buttons" class="buttons-horizontal">
+                    <!-- Botões serão inseridos via JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Nova seção de controle automático de EC -->
+            <div class="ec-control-section">
+                <h2>Controle Automático de EC</h2>
+                <p class="section-description">Configure o sistema adaptativo proporcional para controle automático da condutividade elétrica.</p>
+                
+                <div class="ec-parameters">
+                    <div class="parameter-group">
+                        <label for="base-dose">Base de dose (EC µS/cm):</label>
+                        <input type="number" id="base-dose" value="" min="0" step="1" class="ec-input" placeholder="Ex: 1525">
+                        <small class="help-text" style="color: red;">EC total concentrada para um litro de solução</small>
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="flow-rate">Taxa de vazão peristáltica (ml/s):</label>
+                        <input type="number" id="flow-rate" value="" min="0" step="0.001" class="ec-input" placeholder="Ex: 0.974">
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="volume-reservoir">Volume do reservatório (L):</label>
+                        <input type="number" id="volume-reservoir" value="" min="1" step="1" class="ec-input" placeholder="Ex: 100">
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="total-ml">Soma ml por Litro (concentração):</label>
+                        <input type="number" id="total-ml" value="" min="0" step="0.1" class="ec-input" readonly>
+                        <small class="help-text" style="color: #4CAF50;">Calculado automaticamente pela soma dos ml/L do plano nutricional</small>
+                    </div>
+                </div>
+                
+                <div class="ec-control">
+                    <div class="setpoint-group">
+                        <label for="ec-setpoint">EC Setpoint (µS/cm):</label>
+                        <input type="number" id="ec-setpoint" value="" min="0" step="10" class="ec-input" placeholder="Ex: 1200">
+                    </div>
+                    
+                    <div class="setpoint-group">
+                        <label for="intervalo-auto-ec">Intervalo entre doses (segundos):</label>
+                        <input type="number" id="intervalo-auto-ec" value="" min="1" max="60" step="1" class="ec-input" placeholder="Ex: 3">
+                        <small class="help-text" style="color: #FF9800;">⚠️ Tempo de espera entre nutrientes para evitar precipitações químicas</small>
+                    </div>
+                    
+                    <div class="control-buttons">
+                        <button id="save-ec-params" class="ec-button">Salvar Parâmetros</button>
+                        <button id="toggle-auto-ec" class="ec-button auto-button">Ativar Auto EC</button>
+                        <button id="clear-ec-values" class="ec-button clear-button" style="background-color: #ff6b6b;">🗑️ Limpar Valores</button>
+                    </div>
+                </div>
+                
+                <div class="ec-status">
+                    <div class="status-item">
+                        <span class="status-label">Status:</span>
+                        <span id="auto-ec-status" class="status-value">Desativado</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Erro atual:</span>
+                        <span id="ec-error" class="status-value">-- µS/cm</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Última dosagem:</span>
+                        <span id="last-dosage" class="status-value">-- ml</span>
+                    </div>
+                </div>
+                
+                <!-- Nova seção para mostrar a equação e cálculos -->
+                <div class="equation-display">
+                    <h3>Equação de Controle Proporcional</h3>
+                    <div class="controller-status">
+                        <span id="controller-indicator" class="controller-status-text">
+                            🔄 Conectando com Controller ESP32...
+                        </span>
+                    </div>
+                    <div class="equation-formula">
+                        <span class="formula-text">u(t) = (V / k × q) × e</span>
+                    </div>
+                    
+                    <div class="equation-parameters">
+                        <div class="parameter-row">
+                            <span class="param-label">V (Volume):</span>
+                            <span id="eq-volume" class="param-value">100 L</span>
+                        </div>
+                        <div class="parameter-row">
+                            <span class="param-label">k (EC base / ml por L):</span>
+                            <span id="eq-k-value" class="param-value">1.906</span>
+                        </div>
+                        <div class="parameter-row">
+                            <span class="param-label">q (Taxa de vazão):</span>
+                            <span id="eq-flow-rate" class="param-value">0.974 ml/s</span>
+                        </div>
+                        <div class="parameter-row">
+                            <span class="param-label">e (Erro EC):</span>
+                            <span id="eq-error" class="param-value">-- µS/cm</span>
+                        </div>
+                    </div>
+                    
+                    <div class="equation-result">
+                        <div class="result-row">
+                            <span class="result-label">u(t) tempo de atuação:</span>
+                            <span class="result-inline">
+                                <span id="eq-result" class="result-value">--</span> segundos = 
+                                <span id="eq-ec-gain" class="result-value ec-gain">--</span> µS/cm
+                            </span>
+                        </div>
+                        <div class="result-row">
+                            <span class="result-label">Conversão flowRate:</span>
+                            <span id="eq-time" class="result-value">-- s/ml</span>
+                        </div>
+                        
+                        <!-- ===== NOVA SEÇÃO: EQUAÇÃO DE ACCURACY ===== -->
+                        <div class="accuracy-section">
+                            <div class="accuracy-formula">
+                                <h4>📈 Previsão de Accuracy</h4>
+                                <div class="formula-accuracy">
+                                    <span class="formula-text">EC(∞) = EC(0) + (k × q/v) × Kp × e</span>
+                                </div>
+                            </div>
+                            
+                            <div class="accuracy-result">
+                                <div class="result-row">
+                                    <span class="result-label">Incremento EC (Δ):</span>
+                                    <span id="accuracy-value" class="result-value accuracy-highlight">-- µS/cm</span>
+                                </div>
+                                <div class="result-row">
+                                    <span class="result-label">EC(∞) final previsto:</span>
+                                    <span class="result-inline">
+                                        <span id="ec-atual-display" class="result-value">EC(0)</span> + 
+                                        <span id="accuracy-gain" class="result-value accuracy-highlight">Δ</span> = 
+                                        <span id="ec-final-previsto" class="result-value ec-final">EC(∞) µS/cm</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="result-row">
+                            <button id="executar-dosagem-proporcional" class="ec-button dosage-button" style="margin-top: 10px;">
+                                🚀 Executar Dosagem Proporcional
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Seção unificada do plano nutricional -->
+            <div class="nutrition-section">
+                <h2>Plano Nutricional</h2>
+                <p class="section-description">Configure as quantidades de nutrientes e execute a dosagem completa.</p>
+                
+                <!-- Tabela do Plano Nutricional -->
+                <div class="nutrition-plan-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nutriente</th>
+                                <th>ml por Litro</th>
+                                <th>Quantidade (ml)</th>
+                                <th>Tempo (seg)</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr data-nutrient="Grow" data-relay="3">
+                                <td>Grow</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 2.0"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('Grow', 3)">Dosar</button>
+                                </td>
+                            </tr>
+                            <tr data-nutrient="Micro" data-relay="4">
+                                <td>Micro</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 2.0"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('Micro', 4)">Dosar</button>
+                                </td>
+                            </tr>
+                            <tr data-nutrient="Bloom" data-relay="5">
+                                <td>Bloom</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 2.0"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('Bloom', 5)">Dosar</button>
+                                </td>
+                            </tr>
+                            <tr data-nutrient="CalMag" data-relay="6">
+                                <td>CalMag</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 1.0"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('CalMag', 6)">Dosar</button>
+                                </td>
+                            </tr>
+                            <tr data-nutrient="pH-" data-relay="1">
+                                <td>pH-</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 0.5"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('pH-', 1)">Dosar</button>
+                                </td>
+                            </tr>
+                            <tr data-nutrient="pH+" data-relay="2">
+                                <td>pH+</td>
+                                <td><input type="number" class="ml-por-litro nutrition-input" value="" min="0" step="0.1" placeholder="Ex: 0.5"></td>
+                                <td class="quantidade">0.0</td>
+                                <td class="tempo">0.0</td>
+                                <td class="status">
+                                    <span class="status-text">Aguardando</span>
+                                    <button class="dosar-btn" onclick="dosarNutriente('pH+', 2)">Dosar</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3">Tempo Total de Dosagem:</td>
+                                <td id="tempo-total" colspan="2">0 segundos</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <div class="execution-controls">
+                        <div class="interval-control">
+                            <label for="intervalo-dosagem">Intervalo entre nutrientes:</label>
+                            <input type="number" id="intervalo-dosagem" value="" min="0" class="nutrition-input" placeholder="Ex: 5"> segundos
+                        </div>
+                        <button id="executar-plano" class="nutrition-button">Executar Plano Nutricional</button>
+                        <button id="clear-nutrition-plan" class="nutrition-button clear-button" style="background-color: #ff6b6b; margin-left: 10px;">🗑️ Limpar Plano</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== NOVA SEÇÃO: DASHBOARD DE COMUNICAÇÃO ===== -->
+    <div class="communication-dashboard" id="comm-dashboard">
+        <div class="dashboard-header">
+            <h3>📡 Monitor de Comunicação ESP32</h3>
+            <div class="connection-status">
+                <span id="esp32-status" class="status-indicator offline">🔴 Desconectado</span>
+                <span id="last-communication" class="last-comm">Última comunicação: --</span>
+            </div>
+            <div class="dashboard-controls">
+                <button id="clear-logs" class="control-btn">🗑️ Limpar</button>
+                <button id="toggle-dashboard" class="control-btn">📊 Minimizar</button>
+                <button id="test-connection" class="control-btn">🔧 Testar Conexão</button>
+                <button id="show-data-summary" class="control-btn">📋 Resumo de Dados</button>
+            </div>
+        </div>
+        
+        <div class="dashboard-content">
+            <!-- Status Cards -->
+            <div class="status-cards">
+                <div class="status-card">
+                    <h4>📤 Últimos Envios</h4>
+                    <div id="last-sent" class="status-info">
+                        <div class="info-item">
+                            <span class="label">Tipo:</span>
+                            <span id="last-sent-type">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Dados:</span>
+                            <span id="last-sent-data">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Status:</span>
+                            <span id="last-sent-status">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-card">
+                    <h4>🎯 Controle EC Ativo</h4>
+                    <div id="ec-control-info" class="status-info">
+                        <div class="info-item">
+                            <span class="label">u(t) Atual:</span>
+                            <span id="current-ut">-- ml</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Próxima Dosagem:</span>
+                            <span id="next-dosage">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Relés Ativos:</span>
+                            <span id="active-relays">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-card">
+                    <h4>📊 Estatísticas</h4>
+                    <div id="comm-stats" class="status-info">
+                        <div class="info-item">
+                            <span class="label">Comandos Enviados:</span>
+                            <span id="commands-sent">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Sucessos:</span>
+                            <span id="commands-success">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Falhas:</span>
+                            <span id="commands-failed">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Log de Comunicação -->
+            <div class="communication-log">
+                <h4>📋 Log de Comunicação em Tempo Real</h4>
+                <div class="log-controls">
+                    <label>
+                        <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+                    </label>
+                    <label>
+                        Filtro: 
+                        <select id="log-filter">
+                            <option value="all">Todos</option>
+                            <option value="success">✅ Sucessos</option>
+                            <option value="error">❌ Erros</option>
+                            <option value="info">ℹ️ Info</option>
+                            <option value="data">📊 Dados</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="communication-log" class="log-container">
+                    <div class="log-entry info">
+                        <span class="timestamp">--:--:--</span>
+                        <span class="type">ℹ️ INFO</span>
+                        <span class="message">Sistema de monitoramento iniciado</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Adicionar Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Seu script -->
+    <script src="/script.js"></script>
+    
+    <!-- Definir nomes dos relés -->
+    <script>
+        const relayNames = {
+            1: "Bomba pH-",
+            2: "Bomba pH+",
+            3: "Bomba A",
+            4: "Bomba B",
+            5: "Bomba C",
+            6: "Pump.",
+            7: "Luz UV",
+            8: "Aerador"
+        };
+    </script>
+</body>
+</html>
