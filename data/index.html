@@ -186,10 +186,44 @@
                         </div>
                         
                         <div class="result-row">
-                            <button id="executar-dosagem-proporcional" class="ec-button dosage-button" style="margin-top: 10px;">
-                                🚀 Executar Dosagem Proporcional
+                            <button id="toggle-auto-ec" class="ec-button">
+                                🤖 Ativar Auto EC
                             </button>
                         </div>
+                        
+                        <!-- BOTÃO CANCELAR AUTO EC - APARECE QUANDO ATIVO -->
+                        <div class="result-row" id="cancel-auto-ec-row" style="display: none;">
+                            <button id="cancel-auto-ec" class="ec-button cancel-button" style="background-color: #e74c3c;">
+                                ⏹️ Cancelar Auto EC
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- ===== NOVA SEÇÃO: TIMERS DE RELÉS EM TEMPO REAL ===== -->
+            <div class="relay-timers-section" id="relay-timers-section" style="display: none;">
+                <h2>⏱️ Status dos Relés em Tempo Real</h2>
+                <p class="section-description">Monitore o progresso da dosagem em tempo real com timers precisos para cada relé.</p>
+                
+                <div class="timers-container" id="timers-container">
+                    <!-- Os timers serão inseridos dinamicamente via JavaScript -->
+                </div>
+                
+                <div class="dosage-progress">
+                    <div class="progress-header">
+                        <h3>📊 Progresso da Dosagem</h3>
+                        <div class="progress-stats">
+                            <span>Nutrientes Restantes: <span id="remaining-nutrients">0</span></span>
+                            <span>Tempo Total Estimado: <span id="total-estimated-time">0s</span></span>
+                        </div>
+                    </div>
+                    
+                    <div class="overall-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="overall-progress-fill"></div>
+                        </div>
+                        <span class="progress-text" id="overall-progress-text">0% Concluído</span>
                     </div>
                 </div>
             </div>

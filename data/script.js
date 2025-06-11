@@ -34,7 +34,7 @@ const globalState = {
         currentECValue: 0,
         intervaloBetweenNutrients: 0,  // removido valor padrão
         intervaloAutoEC: 0             // removido valor padrão
-    }
+    },
     
     // Callbacks para notificação de mudanças
     listeners: []
@@ -1072,6 +1072,16 @@ function setupOtherEventListeners() {
         console.log('✅ Listener do botão toggle Auto EC configurado');
     }
     
+    // Event listener para cancelar Auto EC
+    const cancelBtn = document.getElementById('cancel-auto-ec');
+    if (cancelBtn) {
+        cancelBtn.removeEventListener('click', handleCancelAutoEC);
+        cancelBtn.addEventListener('click', handleCancelAutoEC);
+        console.log('✅ Listener do botão cancelar Auto EC configurado');
+    }
+    
+    // COMENTADO - BOTÃO DOSAGEM PROPORCIONAL REMOVIDO
+    /*
     // Event listener para dosagem proporcional manual
     const dosageBtn = document.getElementById('executar-dosagem-proporcional');
     if (dosageBtn) {
@@ -1079,6 +1089,7 @@ function setupOtherEventListeners() {
         dosageBtn.addEventListener('click', handleDosagemProporcional);
         console.log('✅ Listener do botão dosagem proporcional configurado');
     }
+    */
     
     // ===== NOVOS BOTÕES LIMPAR VALORES =====
     
@@ -1246,11 +1257,14 @@ function updateEquationDisplay() {
         }
         
         // Usar os resultados do controller real
-        const utSegundos = controllerResult.utResult;  // u(t) em SEGUNDOS (tempo de atuação)
-        const dosageTimeConverted = controllerResult.dosageTime; // Conversão 1/flowRate
+        const volumeML = controllerResult.utResult;  // u(t) é VOLUME em ml (resultado da equação)
+        const dosageTimeConverted = controllerResult.dosageTime; // Tempo: volume × flowRate_s/ml
         const error = controllerResult.error;
         const k = controllerResult.k;
         const ecAtual = controllerResult.ecAtual;
+        
+        // Calcular tempo real baseado no volume: tempo = volume × flowRate_s/ml
+        const tempoSegundos = volumeML * flowRate;  // ml × s/ml = segundos
         
         // ===== NOVA EQUAÇÃO DE ACCURACY =====
         // EC(∞) = EC(0) + (k × q/v) × Kp × e  → equação proporcional
@@ -1267,16 +1281,14 @@ function updateEquationDisplay() {
         document.getElementById('eq-flow-rate').textContent = `${flowRate} ml/s`;
         document.getElementById('eq-error').textContent = `${error.toFixed(0)} µS/cm`;
         
-        // Atualizar resultados na interface - CORRIGIDO: u(t) é tempo
+        // MANTER INTERFACE VISUAL: u(t) mostrado como "segundos" mas internamente é volume
         const resultElement = document.getElementById('eq-result');
         const timeElement = document.getElementById('eq-time');
         const ecGainElement = document.getElementById('eq-ec-gain');
         
-        if (resultElement) resultElement.textContent = `${utSegundos.toFixed(1)}`;  // u(t) em SEGUNDOS
-        if (timeElement) timeElement.textContent = `${(1/flowRate).toFixed(3)} s/ml`;  // Conversão CORRIGIDA
-        
-        // Calcular volume correspondente: u(t) × flowRate = volume em ML
-        const volumeML = utSegundos * flowRate;
+        // INTERFACE VISUAL MANTIDA: mostra tempo calculado
+        if (resultElement) resultElement.textContent = `${tempoSegundos.toFixed(1)}`;  // Tempo calculado
+        if (timeElement) timeElement.textContent = `${flowRate.toFixed(3)} s/ml`;  // FlowRate correto
         
         // Calcular ganho físico real do sistema: (k * volume_ml) / volume_total
         let physicalGain = 0;
@@ -1297,7 +1309,7 @@ function updateEquationDisplay() {
         }
         
         // Destacar resultado se for significativo
-        if (utSegundos > 0.1) {
+        if (tempoSegundos > 0.1) {
             if (resultElement) resultElement.classList.add('highlight');
             if (timeElement) timeElement.classList.add('highlight');
         } else {
@@ -1309,13 +1321,14 @@ function updateEquationDisplay() {
         const distribution = calculateProportionalDistribution(volumeML);
         
         // Log para debug com distribuição detalhada - CORRIGIDO
-        console.log(`\n=== EQUAÇÃO EC CONTROLLER REAL (ESTADO GLOBAL) ===`);
-        console.log(`u(t) tempo de atuação: ${utSegundos.toFixed(3)} segundos`);
-        console.log(`Volume equivalente: ${volumeML.toFixed(3)} ml`);
+        console.log(`\n=== EQUAÇÃO EC CONTROLLER REAL (CORRIGIDO) ===`);
+        console.log(`u(t) volume calculado: ${volumeML.toFixed(3)} ml`);
+        console.log(`Tempo equivalente: ${tempoSegundos.toFixed(3)} segundos`);
         console.log(`k: ${k.toFixed(3)} (${baseDose}/${totalMlPorLitro})`);
         console.log(`EC Atual: ${ecAtual.toFixed(1)} µS/cm`);
         console.log(`EC Setpoint: ${ecSetpoint} µS/cm`);
         console.log(`Erro: ${error.toFixed(1)} µS/cm`);
+        console.log(`FlowRate: ${flowRate.toFixed(3)} s/ml`);
         console.log(`\n=== EQUAÇÃO DE ACCURACY ===`);
         console.log(`EC(∞) = EC(0) + (k × q/v) × Kp × e`);
         console.log(`EC(∞) = ${ecAtual.toFixed(1)} + (${k.toFixed(3)} × ${flowRate}/${volume}) × 1.0 × ${error.toFixed(1)}`);
@@ -1331,10 +1344,13 @@ function updateEquationDisplay() {
             console.log(`${item.nutriente}: ${item.mlPorLitro} ml/L (${(item.proporcao * 100).toFixed(1)}%) → dosagem=${item.utNutriente.toFixed(3)} ml → tempo=${item.tempoDosagem.toFixed(2)}s`);
         });
         
+        // ===== ENVIAR PROPORÇÕES PARA ESP32 =====
+        sendNutrientProportionsToESP32(distribution);
+        
         // Salvar resultado para uso em outras funções - CORRIGIDO
         window.lastControllerResult = { 
             result: volumeML,        // Volume em ML para distribuição proporcional
-            utSegundos: utSegundos,  // u(t) em segundos (tempo de atuação)
+            utSegundos: tempoSegundos,  // u(t) em segundos (tempo de atuação)
             dosageTime: dosageTimeConverted,  // Conversão s/ml
             A: A,                    // Equação de accuracy
             ecFinalPrevisto: ecFinalPrevisto, // EC final previsto
@@ -1343,7 +1359,7 @@ function updateEquationDisplay() {
         
         return { 
             result: volumeML,        // Volume em ML para distribuição
-            utSegundos: utSegundos,  // u(t) em segundos
+            utSegundos: tempoSegundos,  // u(t) em segundos
             dosageTime: dosageTimeConverted,  // Conversão
             A: A,                    // Accuracy
             ecFinalPrevisto: ecFinalPrevisto, // EC final
@@ -1365,19 +1381,19 @@ function updateEquationDisplay() {
         const currentECValue = globalState.control.currentECValue || 0;
         const errorLocal = ecSetpoint - currentECValue;
         
-        let utSegundosLocal = 0;  // u(t) em segundos (tempo de atuação)
-        let volumeMLLocal = 0;    // Volume correspondente em ML
+        let volumeMLLocal = 0;    // u(t) é VOLUME em ml (resultado da equação)
+        let tempoSegundosLocal = 0;  // Tempo calculado a partir do volume
         
         if (k > 0 && flowRate > 0) {
-            // Equação correta: u(t) = (V / k × q) × e = TEMPO em segundos
-            utSegundosLocal = (volume / (k * flowRate)) * errorLocal;
+            // Equação correta: u(t) = (V / k × q) × e = VOLUME em ml
+            volumeMLLocal = (volume / (k * flowRate)) * errorLocal;
             
             // Aplicar limitações (como no Controller.cpp)
-            if (utSegundosLocal < 0) utSegundosLocal = 0;
-            // REMOVIDO: if (utSegundosLocal > 10.0) utSegundosLocal = 10.0;
+            if (volumeMLLocal < 0) volumeMLLocal = 0;
+            // REMOVIDO: if (volumeMLLocal > 10.0) volumeMLLocal = 10.0;
             
-            // Calcular volume correspondente: u(t) × flowRate = volume em ML
-            volumeMLLocal = utSegundosLocal * flowRate;
+            // Calcular tempo: tempo = volume × flowRate_s/ml
+            tempoSegundosLocal = volumeMLLocal * flowRate;
         }
         
         // ===== EQUAÇÃO DE ACCURACY LOCAL (DINÂMICA) =====
@@ -1388,13 +1404,13 @@ function updateEquationDisplay() {
         // Calcular distribuição proporcional usando volume calculado
         const distribution = calculateProportionalDistribution(volumeMLLocal);
         
-        // Atualizar interface com cálculo local - CORRIGIDO
+        // Atualizar interface com cálculo local - MANTENDO VISUAL
         document.getElementById('eq-volume').textContent = `${volume} L`;
         document.getElementById('eq-k-value').textContent = k.toFixed(3);
         document.getElementById('eq-flow-rate').textContent = `${flowRate} ml/s`;
         document.getElementById('eq-error').textContent = `${errorLocal.toFixed(0)} µS/cm`;
-        document.getElementById('eq-result').textContent = `${utSegundosLocal.toFixed(3)}`;
-        document.getElementById('eq-time').textContent = `${(1/flowRate).toFixed(3)} s/ml`;
+        document.getElementById('eq-result').textContent = `${tempoSegundosLocal.toFixed(3)}`;  // Tempo calculado
+        document.getElementById('eq-time').textContent = `${flowRate.toFixed(3)} s/ml`;  // FlowRate correto
         
         // Calcular ganho físico real do sistema também no fallback
         let physicalGainLocal = 0;
@@ -1414,10 +1430,11 @@ function updateEquationDisplay() {
             }
         }
         
-        console.log('🔧 CÁLCULO LOCAL (estado global):');
-        console.log(`   u(t) tempo: ${utSegundosLocal.toFixed(3)} segundos`);
-        console.log(`   Volume equivalente: ${volumeMLLocal.toFixed(3)} ml`);
+        console.log('🔧 CÁLCULO LOCAL (corrigido):');
+        console.log(`   u(t) volume: ${volumeMLLocal.toFixed(3)} ml`);
+        console.log(`   Tempo equivalente: ${tempoSegundosLocal.toFixed(3)} segundos`);
         console.log(`   k: ${k.toFixed(3)}, erro: ${errorLocal.toFixed(1)} µS/cm`);
+        console.log(`   FlowRate: ${flowRate.toFixed(3)} s/ml`);
         console.log(`   === EQUAÇÃO DE ACCURACY LOCAL ===`);
         console.log(`   EC(∞) = EC(0) + (k × q/v) × Kp × e`);
         console.log(`   EC(∞) = ${currentECValue.toFixed(1)} + (${k.toFixed(3)} × ${flowRate}/${volume}) × 1.0 × ${errorLocal.toFixed(1)}`);
@@ -1430,8 +1447,8 @@ function updateEquationDisplay() {
         
         return Promise.resolve({ 
             result: volumeMLLocal,      // Volume em ML para distribuição
-            utSegundos: utSegundosLocal, // u(t) em segundos
-            dosageTime: (1/flowRate),   // Conversão s/ml
+            utSegundos: tempoSegundosLocal, // u(t) em segundos
+            dosageTime: flowRate,   // Conversão s/ml
             A: ALocal,                  // Accuracy
             ecFinalPrevisto: ecFinalPrevistoLocal, // EC final
             k, 
@@ -1924,10 +1941,59 @@ function fetchRelayStates() {
     // TODO: Implementar endpoint /relay-states no ESP32 se necessário
 }
 
-// Função para lidar com toggle do Auto EC
-function handleToggleAutoEC() {
+// ===== FUNÇÃO PARA CANCELAR AUTO EC =====
+async function handleCancelAutoEC() {
+    try {
+        console.log('🛑 Cancelando Auto EC...');
+        
+        // Mostrar confirmação
+        if (!confirm('⚠️ Tem certeza que deseja CANCELAR o Auto EC?\n\nIsso irá:\n• Parar a dosagem em andamento\n• Desativar o controle automático\n• Desligar todos os relés')) {
+            return;
+        }
+        
+        const response = await fetch('/cancel-auto-ec', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action: 'cancel',
+                timestamp: Date.now()
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Auto EC cancelado com sucesso');
+            
+            // Atualizar interface - desativar Auto EC
+            updateState('control', 'autoECEnabled', false);
+            
+            // Atualizar UI
+            updateECControlUI();
+            
+            // Mostrar notificação
+            showNotification('🛑 Auto EC Cancelado', 'Sistema parado e controle automático desativado', 'warning');
+            
+        } else {
+            console.error('❌ Falha ao cancelar Auto EC:', response.status);
+            showNotification('❌ Erro', 'Falha ao cancelar Auto EC', 'error');
+        }
+    } catch (error) {
+        console.error('❌ Erro ao cancelar Auto EC:', error);
+        showNotification('❌ Erro de Conexão', 'Não foi possível cancelar o Auto EC', 'error');
+    }
+}
+
+// Função para mostrar notificações (se não existir)
+function showNotification(title, message, type = 'info') {
+    // Implementação simples com alert por enquanto
+    alert(`${title}\n\n${message}`);
+}
+
+async function handleToggleAutoEC() {
     const button = document.getElementById('toggle-auto-ec');
     const statusSpan = document.getElementById('auto-ec-status');
+    const currentEnabled = globalState.control.autoECEnabled;
     
     if (!button || !statusSpan) {
         console.error('❌ Elementos do Auto EC não encontrados');
@@ -1935,8 +2001,23 @@ function handleToggleAutoEC() {
         return;
     }
     
+    if (!currentEnabled) {
+        // ===== VALIDAÇÃO ANTES DE ATIVAR AUTO EC =====
+        const validationResult = validateECParameters();
+        if (!validationResult.valid) {
+            showParameterValidationAlert(validationResult.errors);
+            return; // Não ativar se houver erros
+        }
+        
+        // ===== MOSTRAR CONFIRMAÇÃO DETALHADA =====
+        const confirmationResult = await showAutoECConfirmation();
+        if (!confirmationResult) {
+            return; // Usuário cancelou
+        }
+    }
+    
     // Alternar estado
-    const newState = !globalState.control.autoECEnabled;
+    const newState = !currentEnabled;
     updateState('control', 'autoECEnabled', newState);
     
     // Preparar dados para envio
@@ -1962,25 +2043,15 @@ function handleToggleAutoEC() {
         }
         
         // Atualizar interface
-        if (newState) {
-            button.textContent = 'Desativar Auto EC';
-            button.classList.add('active');
-            statusSpan.textContent = 'Ativo';
-            statusSpan.className = 'status-value active';
-        } else {
-            button.textContent = 'Ativar Auto EC';
-            button.classList.remove('active');
-            statusSpan.textContent = 'Desativado';
-            statusSpan.className = 'status-value';
-        }
+        updateECControlUI();
         
         console.log(`✅ Auto EC ${newState ? 'ativado' : 'desativado'} com sucesso`);
         communicationMonitor.addLog('success', `Auto EC ${newState ? 'ativado' : 'desativado'} no ESP32`);
         
         // Log adicional com setpoint
         communicationMonitor.addLog('data', `Setpoint configurado: ${globalState.system.ecSetpoint}µS/cm`);
-        })
-        .catch(error => {
+    })
+    .catch(error => {
         console.error('❌ Erro ao alterar Auto EC:', error);
         communicationMonitor.addLog('error', `Falha ao alterar Auto EC: ${error.message}`);
         alert(`Erro ao alterar controle automático: ${error.message}`);
@@ -1988,78 +2059,6 @@ function handleToggleAutoEC() {
         // Reverter estado em caso de erro
         updateState('control', 'autoECEnabled', !newState);
     });
-}
-
-// Função para lidar com dosagem proporcional manual
-function handleDosagemProporcional() {
-    console.log('🚀 Executando dosagem proporcional manual...');
-    
-    // Calcular u(t) atual usando o estado global
-    updateEquationDisplay().then((result) => {
-        if (result && result.result !== undefined) {
-            const volumeML = result.result;        // Volume total a dosar em ML
-            const utSegundos = result.dosageTime;  // u(t) tempo total em segundos
-            
-            console.log(`💧 Volume total a dosar: ${volumeML.toFixed(3)} ml`);
-            console.log(`⏱️  u(t) tempo total: ${utSegundos.toFixed(2)} segundos`);
-            
-            // Confirmar com usuário (removido limite mínimo)
-            const confirmMsg = `🤖 DOSAGEM PROPORCIONAL MANUAL
-
-📊 Volume total a dosar: ${volumeML.toFixed(3)} ml
-⏱️ u(t) tempo total: ${utSegundos.toFixed(2)} segundos
-
-📋 Distribuição por nutriente:`;
-
-            let distributionMsg = '';
-            if (result.distribution && result.distribution.length > 0) {
-                result.distribution.forEach(item => {
-                    // Mostrar todos os nutrientes, mesmo com valores pequenos
-                    if (item.utNutriente > 0) {
-                        distributionMsg += `\n• ${item.nutriente}: ${item.utNutriente.toFixed(3)}ml em ${item.tempoDosagem.toFixed(2)}s (${(item.proporcao * 100).toFixed(1)}%)`;
-                    }
-                });
-            }
-            
-            const fullMsg = confirmMsg + distributionMsg + '\n\n⚠️ Deseja executar a dosagem?';
-            
-            if (confirm(fullMsg)) {
-                executarDosagemProporcional(volumeML);  // Passar volume em ML
-            } else {
-                console.log('❌ Dosagem cancelada pelo usuário');
-            }
-        } else {
-            alert('⚠️ Erro ao calcular dosagem - Verifique os parâmetros');
-        }
-    }).catch(error => {
-        console.error('❌ Erro ao calcular dosagem:', error);
-        alert(`Erro ao calcular dosagem: ${error.message}`);
-    });
-}
-
-// Atualizar função updateECControlUI para usar estado global
-function updateECControlUI() {
-    const button = document.getElementById('toggle-auto-ec');
-    const statusSpan = document.getElementById('auto-ec-status');
-    
-    if (!button || !statusSpan) {
-        console.warn('⚠️ Elementos da interface Auto EC não encontrados');
-        return;
-    }
-    
-    const isEnabled = globalState.control.autoECEnabled;
-    
-    if (isEnabled) {
-        button.textContent = 'Desativar Auto EC';
-        button.classList.add('active');
-        statusSpan.textContent = 'Ativo';
-        statusSpan.className = 'status-value active';
-    } else {
-        button.textContent = 'Ativar Auto EC';
-        button.classList.remove('active');
-        statusSpan.textContent = 'Desativado';
-        statusSpan.className = 'status-value';
-    }
 }
 
 // ===== NOVAS FUNÇÕES DOS BOTÕES LIMPAR VALORES =====
@@ -2207,14 +2206,15 @@ function handleClearNutritionPlan() {
 // ===== FUNÇÃO PARA ATUALIZAR SEÇÃO DE ACCURACY =====
 function updateAccuracySection(A, ecAtual, ecFinalPrevisto) {
     const accuracyValueElement = document.getElementById('accuracy-value');
-    const accuracyGainElement = document.getElementById('accuracy-gain');
     const ecAtualDisplayElement = document.getElementById('ec-atual-display');
+    const accuracyGainElement = document.getElementById('accuracy-gain');
     const ecFinalPrevistoElement = document.getElementById('ec-final-previsto');
     
-    if (accuracyValueElement) accuracyValueElement.textContent = `${A.toFixed(2)}`;
+    // Atualizar valores individuais com verificação robusta
+    if (accuracyValueElement) accuracyValueElement.textContent = `${A.toFixed(2)} µS/cm`;
     if (accuracyGainElement) accuracyGainElement.textContent = `${A.toFixed(2)}`;
     if (ecAtualDisplayElement) ecAtualDisplayElement.textContent = `${ecAtual.toFixed(1)}`;
-    if (ecFinalPrevistoElement) ecFinalPrevistoElement.textContent = `${ecFinalPrevisto.toFixed(1)}`;
+    if (ecFinalPrevistoElement) ecFinalPrevistoElement.textContent = `${ecFinalPrevisto.toFixed(1)} µS/cm`;
     
     // Destacar valores significativos na accuracy
     if (Math.abs(A) > 20) { // Threshold para accuracy significativa
@@ -2235,3 +2235,775 @@ function updateAccuracySection(A, ecAtual, ecFinalPrevisto) {
     
     console.log(`📈 ACCURACY ATUALIZADA: A=${A.toFixed(2)}, EC atual=${ecAtual.toFixed(1)}, EC(∞)=${ecFinalPrevisto.toFixed(1)}`);
 }
+
+// ===== SISTEMA DE TIMERS DE RELÉS EM TEMPO REAL ===== //
+
+const RelayTimerSystem = {
+    // Estado do sistema
+    state: {
+        activeTimers: new Map(),
+        sequence: [],
+        currentIndex: 0,
+        totalDuration: 0,
+        startTime: null,
+        isRunning: false,
+        completedNutrients: 0
+    },
+    
+    // Configurações
+    config: {
+        updateInterval: 100, // Atualização a cada 100ms para precisão
+        soundEnabled: true,
+        showProgressBars: true
+    },
+    
+    // Inicializar sistema
+    init() {
+        console.log('⏱️ Inicializando sistema de timers em tempo real...');
+        this.setupEventListeners();
+        this.hideTimerSection();
+        console.log('✅ Sistema de timers iniciado');
+    },
+    
+    // Event listeners
+    setupEventListeners() {
+        // Interceptar execução de dosagem proporcional
+        const originalExecute = window.executarDosagemProporcional;
+        if (originalExecute) {
+            window.executarDosagemProporcional = (totalUt) => {
+                // Preparar timers antes da execução
+                this.prepareDosageTimers(totalUt);
+                // Chamar função original
+                originalExecute(totalUt);
+            };
+        }
+    },
+    
+    // Preparar timers para dosagem
+    prepareDosageTimers(totalUt) {
+        console.log('🎯 Preparando timers para dosagem proporcional...');
+        
+        // Calcular distribuição usando função existente
+        const distribution = calculateProportionalDistribution(totalUt);
+        const intervalo = globalState.control.intervaloBetweenNutrients;
+        
+        if (distribution.length === 0) {
+            console.warn('⚠️ Nenhum nutriente para dosagem');
+            return;
+        }
+        
+        // Criar sequência de timers
+        this.state.sequence = distribution.map((item, index) => ({
+            id: `timer-${item.relay}`,
+            nutrientName: item.nutriente,
+            relay: item.relay,
+            duration: item.tempoDosagem, // tempo em segundos
+            volume: item.utNutriente, // volume em ml
+            startDelay: index * (intervalo * 1000), // delay em ms
+            status: 'waiting'
+        }));
+        
+        // Calcular duração total
+        this.state.totalDuration = this.state.sequence.reduce((total, timer) => {
+            return Math.max(total, timer.startDelay + (timer.duration * 1000));
+        }, 0);
+        
+        console.log(`📊 Sequência preparada: ${this.state.sequence.length} nutrientes, duração total: ${(this.state.totalDuration/1000).toFixed(1)}s`);
+        
+        // Mostrar seção e criar timers visuais
+        this.showTimerSection();
+        this.createTimerElements();
+        this.updateProgressStats();
+        
+        // Aguardar 2 segundos e iniciar
+        setTimeout(() => {
+            this.startTimerSequence();
+        }, 2000);
+    },
+    
+    // Mostrar seção de timers
+    showTimerSection() {
+        const section = document.getElementById('relay-timers-section');
+        if (section) {
+            section.style.display = 'block';
+            section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Efeito de fade in
+            section.style.opacity = '0';
+            section.style.transform = 'translateY(20px)';
+            
+            setTimeout(() => {
+                section.style.transition = 'all 0.5s ease';
+                section.style.opacity = '1';
+                section.style.transform = 'translateY(0)';
+            }, 100);
+        }
+    },
+    
+    // Esconder seção de timers
+    hideTimerSection() {
+        const section = document.getElementById('relay-timers-section');
+        if (section) {
+            section.style.display = 'none';
+        }
+    },
+    
+    // Criar elementos visuais dos timers
+    createTimerElements() {
+        const container = document.getElementById('timers-container');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        this.state.sequence.forEach((timer, index) => {
+            const timerElement = this.createTimerElement(timer, index);
+            container.appendChild(timerElement);
+        });
+        
+        console.log(`🎨 Criados ${this.state.sequence.length} elementos de timer`);
+    },
+    
+    // Criar elemento individual do timer
+    createTimerElement(timer, index) {
+        const div = document.createElement('div');
+        div.className = 'relay-timer waiting';
+        div.id = timer.id;
+        
+        div.innerHTML = `
+            <div class="timer-header">
+                <h3 class="nutrient-name">${timer.nutrientName}</h3>
+                <span class="relay-number">Relé ${timer.relay}</span>
+            </div>
+            
+            <div class="timer-display">
+                <span class="timer-value" id="${timer.id}-value">${timer.duration.toFixed(1)}</span>
+                <span class="timer-unit">s</span>
+            </div>
+            
+            <div class="timer-progress">
+                <div class="timer-progress-fill" id="${timer.id}-progress"></div>
+            </div>
+            
+            <div class="timer-details">
+                <div class="timer-info">
+                    <div>Volume: ${timer.volume.toFixed(2)} ml</div>
+                    <div>Início em: ${(timer.startDelay/1000).toFixed(1)}s</div>
+                </div>
+                <span class="timer-status waiting" id="${timer.id}-status">Aguardando</span>
+            </div>
+        `;
+        
+        return div;
+    },
+    
+    // Iniciar sequência de timers
+    startTimerSequence() {
+        if (this.state.isRunning) {
+            console.warn('⚠️ Sequência já está rodando');
+            return;
+        }
+        
+        console.log('🚀 Iniciando sequência de timers em tempo real!');
+        
+        this.state.isRunning = true;
+        this.state.startTime = Date.now();
+        this.state.currentIndex = 0;
+        this.state.completedNutrients = 0;
+        
+        // Resetar todos os timers
+        this.state.activeTimers.clear();
+        
+        // Programar cada timer
+        this.state.sequence.forEach((timer, index) => {
+            // Timer para iniciar dosagem
+            setTimeout(() => {
+                this.startIndividualTimer(timer);
+            }, timer.startDelay);
+            
+            // Timer para finalizar dosagem
+            setTimeout(() => {
+                this.completeIndividualTimer(timer);
+            }, timer.startDelay + (timer.duration * 1000));
+        });
+        
+        // Timer para finalizar sequência completa
+        setTimeout(() => {
+            this.completeSequence();
+        }, this.state.totalDuration + 1000);
+        
+        // Iniciar loop de atualização
+        this.startUpdateLoop();
+        
+        // Log e notificação
+        communicationMonitor.addLog('success', `Timers iniciados: ${this.state.sequence.length} nutrientes em sequência`);
+        
+        // Tocar som de início (se habilitado)
+        this.playSound('start');
+    },
+    
+    // Iniciar timer individual
+    startIndividualTimer(timer) {
+        console.log(`▶️ Iniciando timer: ${timer.nutrientName} (Relé ${timer.relay}) - ${timer.duration.toFixed(1)}s`);
+        
+        // Atualizar estado do timer
+        timer.status = 'active';
+        timer.realStartTime = Date.now();
+        
+        // Adicionar ao mapa de timers ativos
+        this.state.activeTimers.set(timer.id, timer);
+        
+        // Atualizar UI
+        this.updateTimerUI(timer, 'active');
+        
+        // Log
+        communicationMonitor.addLog('data', `▶️ RELÉ ${timer.relay} ATIVADO: ${timer.nutrientName} por ${timer.duration.toFixed(1)}s`);
+        
+        // Som de ativação
+        this.playSound('relay_start');
+    },
+    
+    // Completar timer individual
+    completeIndividualTimer(timer) {
+        console.log(`✅ Completando timer: ${timer.nutrientName} (Relé ${timer.relay})`);
+        
+        // Atualizar estado
+        timer.status = 'completed';
+        this.state.completedNutrients++;
+        
+        // Remover dos timers ativos
+        this.state.activeTimers.delete(timer.id);
+        
+        // Atualizar UI
+        this.updateTimerUI(timer, 'completed');
+        this.updateProgressStats();
+        
+        // Log
+        communicationMonitor.addLog('success', `✅ RELÉ ${timer.relay} FINALIZADO: ${timer.nutrientName} - ${timer.volume.toFixed(2)}ml dosados`);
+        
+        // Som de finalização
+        this.playSound('relay_complete');
+    },
+    
+    // Atualizar UI do timer
+    updateTimerUI(timer, status) {
+        const timerElement = document.getElementById(timer.id);
+        const valueElement = document.getElementById(`${timer.id}-value`);
+        const progressElement = document.getElementById(`${timer.id}-progress`);
+        const statusElement = document.getElementById(`${timer.id}-status`);
+        
+        if (!timerElement) return;
+        
+        // Atualizar classe CSS
+        timerElement.className = `relay-timer ${status}`;
+        
+        // Atualizar status text
+        if (statusElement) {
+            statusElement.className = `timer-status ${status}`;
+            statusElement.textContent = this.getStatusText(status);
+        }
+        
+        // Se for ativo, adicionar classe de countdown
+        if (status === 'active' && valueElement) {
+            valueElement.classList.add('countdown');
+        } else if (valueElement) {
+            valueElement.classList.remove('countdown');
+        }
+        
+        // Atualizar progresso inicial
+        if (progressElement) {
+            if (status === 'completed') {
+                progressElement.style.width = '100%';
+            } else if (status === 'active') {
+                progressElement.style.width = '0%';
+            }
+        }
+    },
+    
+    // Obter texto do status
+    getStatusText(status) {
+        const statusTexts = {
+            'waiting': 'Aguardando',
+            'active': 'Dosando',
+            'completed': 'Concluído',
+            'error': 'Erro'
+        };
+        return statusTexts[status] || 'Desconhecido';
+    },
+    
+    // Loop de atualização em tempo real
+    startUpdateLoop() {
+        const updateInterval = setInterval(() => {
+            if (!this.state.isRunning) {
+                clearInterval(updateInterval);
+                return;
+            }
+            
+            const now = Date.now();
+            const elapsedTotal = now - this.state.startTime;
+            
+            // Atualizar cada timer ativo
+            this.state.activeTimers.forEach((timer) => {
+                this.updateActiveTimer(timer, now);
+            });
+            
+            // Atualizar progresso geral
+            this.updateOverallProgress(elapsedTotal);
+            
+        }, this.config.updateInterval);
+    },
+    
+    // Atualizar timer ativo
+    updateActiveTimer(timer, now) {
+        if (!timer.realStartTime) return;
+        
+        const elapsed = now - timer.realStartTime;
+        const remaining = Math.max(0, (timer.duration * 1000) - elapsed);
+        const progress = Math.min(100, (elapsed / (timer.duration * 1000)) * 100);
+        
+        // Atualizar valor
+        const valueElement = document.getElementById(`${timer.id}-value`);
+        if (valueElement) {
+            valueElement.textContent = (remaining / 1000).toFixed(1);
+        }
+        
+        // Atualizar barra de progresso
+        const progressElement = document.getElementById(`${timer.id}-progress`);
+        if (progressElement) {
+            progressElement.style.width = `${progress}%`;
+        }
+    },
+    
+    // Atualizar progresso geral
+    updateOverallProgress(elapsedTotal) {
+        const progressFill = document.getElementById('overall-progress-fill');
+        const progressText = document.getElementById('overall-progress-text');
+        const remainingNutrients = document.getElementById('remaining-nutrients');
+        const totalEstimatedTime = document.getElementById('total-estimated-time');
+        
+        if (progressFill && progressText) {
+            const overallProgress = Math.min(100, (elapsedTotal / this.state.totalDuration) * 100);
+            progressFill.style.width = `${overallProgress}%`;
+            progressText.textContent = `${overallProgress.toFixed(0)}% Concluído`;
+        }
+        
+        if (remainingNutrients) {
+            const remaining = this.state.sequence.length - this.state.completedNutrients;
+            remainingNutrients.textContent = remaining;
+        }
+        
+        if (totalEstimatedTime) {
+            const remainingTime = Math.max(0, this.state.totalDuration - elapsedTotal);
+            totalEstimatedTime.textContent = `${(remainingTime/1000).toFixed(0)}s`;
+        }
+    },
+    
+    // Atualizar estatísticas de progresso
+    updateProgressStats() {
+        const remainingNutrients = document.getElementById('remaining-nutrients');
+        const totalEstimatedTime = document.getElementById('total-estimated-time');
+        
+        if (remainingNutrients) {
+            const remaining = this.state.sequence.length - this.state.completedNutrients;
+            remainingNutrients.textContent = remaining;
+        }
+        
+        if (totalEstimatedTime) {
+            totalEstimatedTime.textContent = `${(this.state.totalDuration/1000).toFixed(0)}s`;
+        }
+    },
+    
+    // Completar sequência
+    completeSequence() {
+        console.log('🎉 Sequência de dosagem completada!');
+        
+        this.state.isRunning = false;
+        
+        // Atualizar progresso final
+        const progressFill = document.getElementById('overall-progress-fill');
+        const progressText = document.getElementById('overall-progress-text');
+        
+        if (progressFill && progressText) {
+            progressFill.style.width = '100%';
+            progressText.textContent = '100% Concluído';
+        }
+        
+        // Log final
+        communicationMonitor.addLog('success', `🎉 DOSAGEM COMPLETA: ${this.state.completedNutrients}/${this.state.sequence.length} nutrientes processados`);
+        
+        // Som de finalização
+        this.playSound('sequence_complete');
+        
+        // Auto-ocultar após 10 segundos
+        setTimeout(() => {
+            this.hideTimerSection();
+        }, 10000);
+        
+        // Notificação visual
+        this.showCompletionNotification();
+    },
+    
+    // Mostrar notificação de conclusão
+    showCompletionNotification() {
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #4CAF50, #8BC34A);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 10000;
+            box-shadow: 0 4px 20px rgba(76, 175, 80, 0.4);
+            animation: slideInRight 0.5s ease;
+        `;
+        
+        notification.innerHTML = `
+            🎉 <strong>DOSAGEM COMPLETA!</strong><br>
+            <small>${this.state.completedNutrients} nutrientes processados com sucesso</small>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Remover após 5 segundos
+        setTimeout(() => {
+            notification.style.animation = 'slideOutRight 0.5s ease';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 500);
+        }, 5000);
+    },
+    
+    // Tocar sons (simulado - pode ser expandido)
+    playSound(type) {
+        if (!this.config.soundEnabled) return;
+        
+        console.log(`🔊 Som: ${type}`);
+        
+        // Aqui poderia implementar sons reais usando Web Audio API
+        // Por enquanto, apenas log para debugar
+        const soundMessages = {
+            'start': '🎵 Som de início da sequência',
+            'relay_start': '🔊 Som de ativação do relé',
+            'relay_complete': '✅ Som de finalização do relé',
+            'sequence_complete': '🎉 Som de conclusão da sequência'
+        };
+        
+        communicationMonitor.addLog('info', soundMessages[type] || `🔊 Som: ${type}`);
+    },
+    
+    // Parar sistema de emergência
+    emergencyStop() {
+        console.log('🛑 PARADA DE EMERGÊNCIA dos timers!');
+        
+        this.state.isRunning = false;
+        this.state.activeTimers.clear();
+        
+        // Atualizar todos os timers para erro
+        this.state.sequence.forEach(timer => {
+            if (timer.status === 'active' || timer.status === 'waiting') {
+                timer.status = 'error';
+                this.updateTimerUI(timer, 'error');
+            }
+        });
+        
+        communicationMonitor.addLog('error', '🛑 PARADA DE EMERGÊNCIA ativada - todos os timers interrompidos');
+    }
+};
+
+// Inicializar sistema de timers quando DOM estiver pronto
+document.addEventListener('DOMContentLoaded', function() {
+    // Aguardar um pouco para garantir que outros sistemas estejam prontos
+    setTimeout(() => {
+        RelayTimerSystem.init();
+    }, 1000);
+});
+
+// Adicionar sistema de timers ao escopo global para debugging
+window.RelayTimerSystem = RelayTimerSystem;
+
+// ===== FUNÇÃO PARA ENVIAR PROPORÇÕES AO ESP32 =====
+async function sendNutrientProportionsToESP32(distribution) {
+    try {
+        // Extrair proporções dos nutrientes
+        const proportions = {
+            grow: 0,
+            micro: 0,
+            bloom: 0,
+            calmag: 0
+        };
+        
+        // Mapear distribuição para proporções
+        distribution.forEach(item => {
+            const name = item.nutriente.toLowerCase();
+            if (proportions.hasOwnProperty(name)) {
+                proportions[name] = item.proporcao;
+            }
+        });
+        
+        console.log('📤 Enviando proporções para ESP32:', proportions);
+        
+        const response = await fetch('/nutrient-proportions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(proportions)
+        });
+        
+        if (response.ok) {
+            console.log('✅ Proporções enviadas com sucesso ao ESP32');
+        } else {
+            console.warn('⚠️ Falha ao enviar proporções:', response.status);
+        }
+    } catch (error) {
+        console.error('❌ Erro ao enviar proporções ao ESP32:', error);
+    }
+}
+
+// Atualizar função updateECControlUI para usar estado global
+function updateECControlUI() {
+    const button = document.getElementById('toggle-auto-ec');
+    const statusSpan = document.getElementById('auto-ec-status');
+    const cancelRow = document.getElementById('cancel-auto-ec-row');
+    
+    if (!button || !statusSpan) {
+        console.warn('⚠️ Elementos da interface Auto EC não encontrados');
+        return;
+    }
+    
+    const isEnabled = globalState.control.autoECEnabled;
+    
+    if (isEnabled) {
+        button.textContent = '🤖 Desativar Auto EC';
+        button.classList.add('active');
+        statusSpan.textContent = 'Ativo';
+        statusSpan.className = 'status-value active';
+        
+        // Mostrar botão de cancelar quando ativo
+        if (cancelRow) {
+            cancelRow.style.display = 'block';
+        }
+    } else {
+        button.textContent = '🤖 Ativar Auto EC';
+        button.classList.remove('active');
+        statusSpan.textContent = 'Desativado';
+        statusSpan.className = 'status-value';
+        
+        // Esconder botão de cancelar quando inativo
+        if (cancelRow) {
+            cancelRow.style.display = 'none';
+        }
+    }
+}
+
+// ===== FUNÇÃO DE VALIDAÇÃO DE PARÂMETROS EC =====
+function validateECParameters() {
+    const errors = [];
+    
+    // Verificar campos obrigatórios
+    const baseDose = parseFloat(document.getElementById('base-dose').value) || 0;
+    const flowRate = parseFloat(document.getElementById('flow-rate').value) || 0;
+    const volume = parseFloat(document.getElementById('volume-reservoir').value) || 0;
+    const ecSetpoint = parseFloat(document.getElementById('ec-setpoint').value) || 0;
+    const totalMl = parseFloat(document.getElementById('total-ml').value) || 0;
+    
+    // Validar cada campo
+    if (baseDose <= 0) {
+        errors.push('• Base de dose (EC µS/cm) deve ser maior que 0');
+    }
+    
+    if (flowRate <= 0) {
+        errors.push('• Taxa de vazão peristáltica deve ser maior que 0');
+    }
+    
+    if (volume <= 0) {
+        errors.push('• Volume do reservatório deve ser maior que 0');
+    }
+    
+    if (ecSetpoint <= 0) {
+        errors.push('• EC Setpoint deve ser maior que 0');
+    }
+    
+    if (totalMl <= 0) {
+        errors.push('• Soma ml por Litro deve ser maior que 0 (configure o plano nutricional)');
+    }
+    
+    // Validar se há pelo menos um nutriente configurado
+    let hasNutrients = false;
+    const nutritionInputs = document.querySelectorAll('.ml-por-litro');
+    nutritionInputs.forEach(input => {
+        if (parseFloat(input.value) > 0) {
+            hasNutrients = true;
+        }
+    });
+    
+    if (!hasNutrients) {
+        errors.push('• Configure pelo menos um nutriente no plano nutricional');
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors: errors
+    };
+}
+
+// ===== FUNÇÃO PARA MOSTRAR ALERTA DE VALIDAÇÃO =====
+function showParameterValidationAlert(errors) {
+    const errorMessage = `⚠️ NÃO É POSSÍVEL ATIVAR AUTO EC\n\nCampos obrigatórios não preenchidos:\n\n${errors.join('\n')}\n\n📋 AÇÃO NECESSÁRIA:\n1. Preencha todos os campos obrigatórios\n2. Configure o plano nutricional\n3. Clique em "Salvar Parâmetros"\n4. Tente ativar o Auto EC novamente`;
+    
+    alert(errorMessage);
+    
+    // Log no console para debug
+    console.error('❌ Validação falhou - Parâmetros obrigatórios:', errors);
+    
+    // Destacar campos com erro (opcional)
+    highlightEmptyFields();
+}
+
+// ===== FUNÇÃO PARA DESTACAR CAMPOS VAZIOS =====
+function highlightEmptyFields() {
+    const fieldsToCheck = [
+        'base-dose',
+        'flow-rate', 
+        'volume-reservoir',
+        'ec-setpoint'
+    ];
+    
+    fieldsToCheck.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        const value = parseFloat(field.value) || 0;
+        
+        if (value <= 0) {
+            field.style.borderColor = '#e74c3c';
+            field.style.backgroundColor = '#fdf2f2';
+            
+            // Remover destaque após 3 segundos
+            setTimeout(() => {
+                field.style.borderColor = '';
+                field.style.backgroundColor = '';
+            }, 3000);
+        }
+    });
+    
+    // Verificar total-ml também
+    const totalMlField = document.getElementById('total-ml');
+    const totalMlValue = parseFloat(totalMlField.value) || 0;
+    if (totalMlValue <= 0) {
+        totalMlField.style.borderColor = '#e74c3c';
+        totalMlField.style.backgroundColor = '#fdf2f2';
+        
+        setTimeout(() => {
+            totalMlField.style.borderColor = '';
+            totalMlField.style.backgroundColor = '';
+        }, 3000);
+    }
+}
+
+// ===== FUNÇÃO PARA MOSTRAR CONFIRMAÇÃO DETALHADA DO AUTO EC =====
+async function showAutoECConfirmation() {
+    try {
+        // Obter valores atuais dos campos
+        const baseDose = parseFloat(document.getElementById('base-dose').value);
+        const flowRate = parseFloat(document.getElementById('flow-rate').value);
+        const volume = parseFloat(document.getElementById('volume-reservoir').value);
+        const ecSetpoint = parseFloat(document.getElementById('ec-setpoint').value);
+        const totalMl = parseFloat(document.getElementById('total-ml').value);
+        const intervalo = parseFloat(document.getElementById('intervalo-auto-ec').value) || 3;
+        
+        // Calcular u(t) atual usando o controller
+        const calculationResult = await updateEquationDisplay();
+        
+        // Obter EC atual (simulado ou real)
+        const ecAtual = globalState.control.currentECValue || 400; // Valor de exemplo
+        const erro = ecSetpoint - ecAtual;
+        
+        // Preparar dados dos cálculos
+        let utVolume = 0;
+        let tempoSegundos = 0;
+        let ganhoFisico = 0;
+        
+        if (calculationResult && calculationResult.result !== undefined) {
+            utVolume = calculationResult.result;
+            tempoSegundos = calculationResult.utSegundos;
+            
+            // Calcular ganho físico previsto
+            const k = totalMl > 0 ? baseDose / totalMl : 0;
+            ganhoFisico = volume > 0 ? (k * utVolume) / volume : 0;
+        }
+        
+        // Criar mensagem de confirmação detalhada
+        const confirmationMessage = `🤖 ATIVAÇÃO DO AUTO EC
+        
+✅ PARÂMETROS EC CONFIGURADOS:
+
+📊 Base de dose: ${baseDose} µS/cm
+💧 Taxa de vazão: ${flowRate} ml/s  
+🪣 Volume reservatório: ${volume} L
+🧪 Soma ml por Litro: ${totalMl} ml/L
+⏱️ Intervalo entre doses: ${intervalo} segundos
+
+🎯 CONTROLE AUTOMÁTICO:
+
+📈 EC Atual: ${ecAtual.toFixed(0)} µS/cm
+🎯 EC Setpoint: ${ecSetpoint} µS/cm
+⚡ Erro: ${erro.toFixed(0)} µS/cm
+
+📊 CÁLCULOS AUTOMÁTICOS:
+
+💧 u(t) Volume a dosar: ${utVolume.toFixed(3)} ml
+⏱️ Tempo de dosagem: ${tempoSegundos.toFixed(2)} segundos
+⚡ Ganho físico previsto: ${ganhoFisico.toFixed(1)} µS/cm
+
+🔄 PROPORÇÕES DINÂMICAS:
+${await getNutrientProportionsText()}
+
+⚠️ IMPORTANTE:
+• O sistema dosará AUTOMATICAMENTE quando necessário
+• Verificação a cada 30 segundos
+• Tolerância: ±50 µS/cm
+• Você pode cancelar a qualquer momento
+
+🤖 Deseja ATIVAR o controle automático?`;
+
+        return confirm(confirmationMessage);
+        
+    } catch (error) {
+        console.error('❌ Erro ao preparar confirmação:', error);
+        
+        // Fallback com confirmação simples
+        const simpleConfirmation = `🤖 ATIVAR AUTO EC?
+        
+⚠️ Isso iniciará o controle automático de EC.
+O sistema dosará nutrientes automaticamente quando necessário.
+
+Deseja continuar?`;
+        
+        return confirm(simpleConfirmation);
+    }
+}
+
+// ===== FUNÇÃO AUXILIAR PARA OBTER TEXTO DAS PROPORÇÕES =====
+async function getNutrientProportionsText() {
+    try {
+        const lastResult = window.lastControllerResult;
+        if (lastResult && lastResult.distribution) {
+            let proportionsText = '';
+            lastResult.distribution.forEach(item => {
+                if (item.utNutriente > 0.001) {
+                    proportionsText += `  • ${item.nutriente}: ${item.utNutriente.toFixed(2)}ml (${(item.proporcao * 100).toFixed(1)}%)\n`;
+                }
+            });
+            return proportionsText || '  • Nenhuma proporção configurada';
+        }
+        return '  • Proporções serão calculadas automaticamente';
+    } catch (error) {
+        return '  • Erro ao obter proporções';
+    }
+}
+
+// ===== FUNÇÃO DE VALIDAÇÃO DE PARÂMETROS EC =====

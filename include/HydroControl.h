@@ -39,6 +39,14 @@ struct SimpleNutrient {
     int durationMs;
 };
 
+// ===== PROPORÇÕES DINÂMICAS DA INTERFACE =====
+struct NutrientProportion {
+    String name;
+    int relay;
+    float ratio;      // Proporção (0.0 - 1.0)
+    bool active;      // Se está ativo na interface
+};
+
 class HydroControl {
 public:
     HydroControl(); //construtor
@@ -81,6 +89,17 @@ public:
     
     // Configuração do controlador EC
     ECController& getECController() { return ecController; }
+    
+    // ===== FUNÇÕES PÚBLICAS DE CONTROLE =====
+    void setNutrientProportions(const String& growRatio, const String& microRatio, 
+                               const String& bloomRatio, const String& calmagRatio);
+    void updateProportionsFromWeb(JsonArray proportions);
+    void startDynamicSequentialDosage(float totalML, float ecSetpoint, float ecActual);
+    
+    // ===== FUNÇÕES DE EMERGÊNCIA E CANCELAMENTO =====
+    void cancelCurrentDosage();        // Cancelar dosagem em andamento
+    void emergencyStopAllRelays();     // Parar todos os relés imediatamente
+    bool isDosageActive() const;       // Verificar se há dosagem ativa
 
 private:
     static const int NUM_RELAYS = 8;  // Total de relés
@@ -116,9 +135,9 @@ private:
     bool waitingInterval;
     
     // ===== SISTEMA SEQUENCIAL SIMPLES (SEM ARRAY) =====
-    SequentialState currentState;
+    SequentialState currentState = IDLE;
     SimpleNutrient nutrients[6];  // Máximo 6 nutrientes: Grow, Micro, Bloom, CalMag, pH+, pH-
-    int totalNutrients;
+    int totalNutrients = 0;
     int currentNutrientIndex;
     unsigned long stateStartTime;
     int intervalSeconds;
@@ -136,6 +155,10 @@ private:
     unsigned long lastECCheck;
     static const unsigned long EC_CHECK_INTERVAL = 30000; // 30 segundos
     int autoECIntervalSeconds;
+    
+    // ===== PROPORÇÕES DINÂMICAS DA INTERFACE =====
+    NutrientProportion dynamicProportions[6]; // Máximo 6 nutrientes
+    int activeDynamicNutrients = 4;           // Quantos estão ativos
     
     // Funções internas
     void updateSensors(); //atualizar os sensores

@@ -1507,3 +1507,319 @@ button {
     50% { opacity: 1; }
     100% { opacity: 0.6; }
 }
+
+/* ===== ESTILOS PARA TIMERS DE RELÉS EM TEMPO REAL ===== */
+
+.relay-timers-section {
+    background: linear-gradient(135deg, rgba(26, 26, 26, 0.9), rgba(46, 46, 46, 0.9));
+    border: 2px solid rgba(76, 175, 80, 0.3);
+    border-radius: 25px;
+    padding: 25px;
+    margin: 25px 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.relay-timers-section h2 {
+    color: #4CAF50 !important;
+    text-align: center;
+    margin-bottom: 10px;
+    font-size: 28px;
+    text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+}
+
+.relay-timers-section .section-description {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.8) !important;
+    margin-bottom: 25px;
+    font-size: 16px;
+}
+
+.timers-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.relay-timer {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(46, 125, 50, 0.1));
+    border: 2px solid rgba(76, 175, 80, 0.4);
+    border-radius: 20px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.relay-timer.active {
+    border-color: #4CAF50;
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.4);
+    animation: pulseGlow 2s infinite;
+}
+
+.relay-timer.waiting {
+    border-color: rgba(255, 193, 7, 0.4);
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 152, 0, 0.1));
+}
+
+.relay-timer.completed {
+    border-color: rgba(33, 150, 243, 0.4);
+    background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(21, 101, 192, 0.1));
+}
+
+.relay-timer.error {
+    border-color: rgba(244, 67, 54, 0.4);
+    background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(198, 40, 40, 0.1));
+}
+
+.timer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.nutrient-name {
+    font-size: 20px;
+    font-weight: bold;
+    color: #ffffff !important;
+    margin: 0;
+}
+
+.relay-number {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4CAF50 !important;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 12px;
+    font-weight: bold;
+    border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.timer-display {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.timer-value {
+    font-size: 48px;
+    font-weight: bold;
+    color: #4CAF50 !important;
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+    line-height: 1;
+}
+
+.timer-unit {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.7) !important;
+    margin-left: 5px;
+}
+
+.timer-progress {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 15px 0;
+}
+
+.timer-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    border-radius: 4px;
+    transition: width 0.1s ease;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+}
+
+.timer-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    font-size: 14px;
+}
+
+.timer-info {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.timer-status {
+    padding: 5px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.timer-status.active {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4CAF50 !important;
+    border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.timer-status.waiting {
+    background: rgba(255, 193, 7, 0.2);
+    color: #FFC107 !important;
+    border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+.timer-status.completed {
+    background: rgba(33, 150, 243, 0.2);
+    color: #2196F3 !important;
+    border: 1px solid rgba(33, 150, 243, 0.4);
+}
+
+.timer-status.error {
+    background: rgba(244, 67, 54, 0.2);
+    color: #F44336 !important;
+    border: 1px solid rgba(244, 67, 54, 0.4);
+}
+
+/* Progress geral da dosagem */
+.dosage-progress {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.progress-header h3 {
+    color: #ffffff !important;
+    margin: 0;
+    font-size: 20px;
+}
+
+.progress-stats {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.overall-progress {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A, #CDDC39);
+    border-radius: 6px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
+}
+
+.progress-text {
+    color: #ffffff !important;
+    font-weight: bold;
+    font-size: 16px;
+    min-width: 120px;
+    text-align: right;
+}
+
+/* Animações */
+@keyframes pulseGlow {
+    0% { 
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.4);
+        transform: scale(1);
+    }
+    50% { 
+        box-shadow: 0 0 30px rgba(76, 175, 80, 0.6);
+        transform: scale(1.02);
+    }
+    100% { 
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.4);
+        transform: scale(1);
+    }
+}
+
+@keyframes countdownPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.timer-value.countdown {
+    animation: countdownPulse 1s infinite;
+}
+
+/* Responsividade para timers */
+@media (max-width: 768px) {
+    .timers-container {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .relay-timer {
+        padding: 15px;
+    }
+    
+    .timer-value {
+        font-size: 36px;
+    }
+    
+    .progress-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .progress-stats {
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .overall-progress {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .progress-text {
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .relay-timers-section {
+        padding: 15px;
+    }
+    
+    .timer-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .timer-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .nutrient-name {
+        font-size: 18px;
+    }
+    
+    .timer-value {
+        font-size: 32px;
+    }
+}

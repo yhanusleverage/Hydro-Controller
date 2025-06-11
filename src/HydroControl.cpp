@@ -119,7 +119,7 @@ void HydroControl::begin() {
 
 void HydroControl::update() {
     updateSensors();
-    checkRelayTimers();
+    // checkRelayTimers();  // ← DESATIVADO: Sistema concorrente que interfere com processSimpleSequential
     updateDisplay();
     checkAutoEC();
     
@@ -237,8 +237,9 @@ void HydroControl::checkAutoEC() {
             Serial.printf("⏱️  Tempo de dosagem: %.1f segundos\n", dosageTime);
             Serial.println(String('-', 70));
             
-            // ===== USAR SISTEMA SIMPLES =====
-            startSimpleSequentialDosage(dosageML, ecSetpoint, ec);
+            // ===== USAR SISTEMA DINÂMICO (PROPORÇÕES DA INTERFACE) =====
+            Serial.println("🔄 Auto EC usando proporções dinâmicas da interface");
+            startDynamicSequentialDosage(dosageML, ecSetpoint, ec);
             
             showMessage("Auto EC: Seq. Ativada");
             
@@ -345,6 +346,7 @@ void HydroControl::scheduleRelay(int relayIndex, int seconds, unsigned long dela
     toggleRelay(relayIndex, seconds * 1000);
 }
 
+/*
 void HydroControl::checkRelayTimers() {
     unsigned long currentMillis = millis();
     for(int i = 0; i < NUM_RELAYS; i++) {
@@ -369,6 +371,7 @@ void HydroControl::checkRelayTimers() {
         }
     }
 }
+*/
 
 // ===== SISTEMA SIMPLES FUNCIONANDO - SEM FUNÇÕES ANTIGAS =====
 
@@ -615,4 +618,169 @@ void HydroControl::executeWebDosage(JsonArray distribution, int intervalo) {
         Serial.println("❌ Nenhum nutriente válido recebido da web");
         currentState = IDLE;
     }
+}
+
+// ===== GERENCIAMENTO DE PROPORÇÕES DINÂMICAS =====
+
+void HydroControl::setNutrientProportions(const String& growRatio, const String& microRatio, 
+                                          const String& bloomRatio, const String& calmagRatio) {
+    // Definir proporções dos nutrientes baseadas na interface
+    dynamicProportions[0] = {"Grow", 2, growRatio.toFloat(), true};     // Relé 3
+    dynamicProportions[1] = {"Micro", 3, microRatio.toFloat(), true};   // Relé 4  
+    dynamicProportions[2] = {"Bloom", 4, bloomRatio.toFloat(), true};   // Relé 5
+    dynamicProportions[3] = {"CalMag", 5, calmagRatio.toFloat(), true}; // Relé 6
+    
+    activeDynamicNutrients = 4;
+    
+    Serial.println("✅ Proporções dinâmicas atualizadas:");
+    Serial.printf("   Grow: %.1f%%, Micro: %.1f%%, Bloom: %.1f%%, CalMag: %.1f%%\n", 
+                  growRatio.toFloat() * 100, microRatio.toFloat() * 100, 
+                  bloomRatio.toFloat() * 100, calmagRatio.toFloat() * 100);
+}
+
+void HydroControl::updateProportionsFromWeb(JsonArray proportions) {
+    activeDynamicNutrients = 0;
+    
+    for (JsonVariant prop : proportions) {
+        if (activeDynamicNutrients >= 6) break;
+        
+        String name = prop["name"].as<String>();
+        int relay = prop["relay"].as<int>() - 1;  // Converter 1-8 para 0-7
+        float ratio = prop["ratio"].as<float>();
+        
+        dynamicProportions[activeDynamicNutrients] = {name, relay, ratio, true};
+        activeDynamicNutrients++;
+    }
+    
+    Serial.printf("✅ %d proporções dinâmicas recebidas da web\n", activeDynamicNutrients);
+}
+
+void HydroControl::startDynamicSequentialDosage(float totalML, float ecSetpoint, float ecActual) {
+    if (currentState != IDLE) {
+        Serial.println("⚠️  Sistema já ativo - ignorando nova dosagem dinâmica");
+        return;
+    }
+    
+    Serial.println("\n🔄 INICIANDO DOSAGEM SEQUENCIAL DINÂMICA...");
+    Serial.printf("💧 Total u(t): %.3f ml\n", totalML);
+    
+    totalNutrients = 0;
+    intervalSeconds = autoECIntervalSeconds;
+    
+    // ===== USAR PROPORÇÕES DINÂMICAS DA INTERFACE =====
+    for (int i = 0; i < activeDynamicNutrients; i++) {
+        if (!dynamicProportions[i].active) continue;
+        
+        float nutDosage = totalML * dynamicProportions[i].ratio;
+        float nutTime = nutDosage / ecController.getFlowRate();
+        int durationMs = (int)(nutTime * 1000);
+        
+        if (durationMs < 100) durationMs = 100; // Mínimo 100ms
+        
+        if (nutDosage > 0.001) {
+            nutrients[totalNutrients].name = dynamicProportions[i].name;
+            nutrients[totalNutrients].relay = dynamicProportions[i].relay;
+            nutrients[totalNutrients].dosageML = nutDosage;
+            nutrients[totalNutrients].durationMs = durationMs;
+            
+            Serial.printf("📝 %s: %.3fml (%.1f%%) → %dms → Relé %d\n", 
+                dynamicProportions[i].name.c_str(), nutDosage, 
+                dynamicProportions[i].ratio * 100, durationMs, 
+                dynamicProportions[i].relay + 1);
+            
+            totalNutrients++;
+        }
+    }
+    
+    if (totalNutrients > 0) {
+        // ===== INICIAR PRIMEIRO NUTRIENTE =====
+        currentNutrientIndex = 0;
+        currentState = DOSING;
+        stateStartTime = millis();
+        
+        SimpleNutrient& first = nutrients[0];
+        Serial.printf("🚀 Iniciando PRIMEIRO (Dinâmico): %s - %.3fml por %.3fs - Relé %d\n", 
+            first.name.c_str(), first.dosageML, first.durationMs / 1000.0, first.relay + 1);
+        
+        // ===== LIGAR PRIMEIRO RELÉ =====
+        relayStates[first.relay] = true;
+        bool state = !relayStates[first.relay];
+        
+        if (first.relay < 7) {
+            pcf1.write(first.relay, state);
+        } else {
+            int pcf2Pin = first.relay - 6;
+            pcf2.write(pcf2Pin, state);
+        }
+        
+        String displayMsg = first.name + ": " + String(first.dosageML, 2) + "ml";
+        showMessage(displayMsg);
+        
+        Serial.printf("✅ SISTEMA DINÂMICO INICIADO: %d nutrientes, intervalo %ds\n", totalNutrients, intervalSeconds);
+    } else {
+        Serial.println("❌ Nenhuma dosagem dinâmica significativa para executar");
+        currentState = IDLE;
+    }
+}
+
+// ===== FUNÇÕES DE EMERGÊNCIA E CANCELAMENTO =====
+
+void HydroControl::cancelCurrentDosage() {
+    if (currentState != IDLE) {
+        Serial.println("\n🛑 CANCELANDO DOSAGEM SEQUENCIAL EM ANDAMENTO...");
+        Serial.printf("📊 Estado atual: %s\n", 
+                      currentState == DOSING ? "DOSING" : 
+                      currentState == WAITING ? "WAITING" : "IDLE");
+        
+        if (currentState == DOSING) {
+            // Desligar relé atual imediatamente
+            SimpleNutrient& current = nutrients[currentNutrientIndex];
+            relayStates[current.relay] = false;
+            bool state = !relayStates[current.relay];
+            
+            if (current.relay < 7) {
+                pcf1.write(current.relay, state);
+                Serial.printf("🔴 Relé %d CANCELADO (era %s)\n", current.relay + 1, current.name.c_str());
+            } else {
+                int pcf2Pin = current.relay - 6;
+                pcf2.write(pcf2Pin, state);
+                Serial.printf("🔴 Relé %d CANCELADO (era %s)\n", current.relay + 1, current.name.c_str());
+            }
+        }
+        
+        // Resetar sistema sequencial
+        currentState = IDLE;
+        totalNutrients = 0;
+        currentNutrientIndex = 0;
+        stateStartTime = 0;
+        
+        Serial.println("✅ DOSAGEM CANCELADA - Sistema resetado para IDLE");
+    } else {
+        Serial.println("ℹ️  Nenhuma dosagem ativa para cancelar");
+    }
+}
+
+void HydroControl::emergencyStopAllRelays() {
+    Serial.println("🚨 PARADA DE EMERGÊNCIA - DESLIGANDO TODOS OS RELÉS");
+    
+    // Desligar todos os relés imediatamente
+    for (int i = 0; i < NUM_RELAYS; i++) {
+        relayStates[i] = false;
+        startTimes[i] = 0;
+        timerSeconds[i] = 0;
+        
+        // Desligar nos PCF8574s
+        if (i < 7) {
+            pcf1.write(i, HIGH);  // HIGH = relé desligado
+        } else {
+            int pcf2Pin = i - 6;
+            pcf2.write(pcf2Pin, HIGH);
+        }
+    }
+    
+    Serial.println("⚡ Todos os 8 relés foram DESLIGADOS por segurança");
+}
+
+bool HydroControl::isDosageActive() const {
+    return (currentState != IDLE);
 }

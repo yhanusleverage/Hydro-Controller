@@ -44,11 +44,6 @@ float ECController::calculateDosage(float ecSetpoint, float ecActual) {
         dosage = 0;
     }
     
-    // Limitar dosagem máxima para segurança (máximo 10ml por vez)
-    if (dosage > 10.0) {
-        dosage = 10.0;
-    }
-    
     return dosage;
 }
 

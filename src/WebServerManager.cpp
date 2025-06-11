@@ -104,7 +104,8 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
         }
     });
 
-    // ===== NOVA ROTA PARA DOSAGEM PROPORCIONAL =====
+    // ===== ROTA DOSAGEM PROPORCIONAL COMENTADA - NÃO FUNCIONAL =====
+    /*
     server.on("/dosagem-proporcional", HTTP_POST, [](AsyncWebServerRequest *request){
         request->send(200, "text/plain", "OK");
     }, NULL, [this, toggleRelay](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
@@ -148,6 +149,7 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
         // ===== USAR NOVO SISTEMA SEQUENCIAL =====
         hydroControlRef->executeWebDosage(distribution, intervalo);
     });
+    */
 
     // Rota para configurar parâmetros do controlador EC
     server.on("/ec-config", HTTP_POST, [this](AsyncWebServerRequest *request){
@@ -321,6 +323,11 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
             // Calcular k para informação
             float k = totalMlPorLitro > 0 ? baseDose / totalMlPorLitro : 0;
             
+            // ===== CORREÇÃO: CALCULAR TEMPO CORRETAMENTE =====
+            float flowRateMLperS = 1.0 / flowRate;  // 1/1.027 = 0.974 ml/s
+            float flowRateSperML = flowRate;         // 1.027 s/ml
+            float tempoSegundos = utResult * flowRateSperML;  // Tempo = u(t) × s/ml
+            
             // Preparar resposta JSON
             String response = "{";
             response += "\"utResult\":" + String(utResult, 3) + ",";
@@ -335,14 +342,19 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
             response += "\"totalMlPorLitro\":" + String(totalMlPorLitro, 1);
             response += "}";
             
-            Serial.printf("=== CÁLCULO EC CONTROLLER ===\n");
-            Serial.printf("EC Atual: %.1f µS/cm\n", ecAtual);
-            Serial.printf("EC Setpoint: %.1f µS/cm\n", ecSetpoint);
-            Serial.printf("Erro: %.1f µS/cm\n", error);
-            Serial.printf("k calculado: %.3f\n", k);
-            Serial.printf("u(t) resultado: %.3f ml\n", utResult);
-            Serial.printf("Tempo dosagem: %.2f segundos\n", dosageTime);
-            Serial.printf("============================\n");
+            // ===== DEBUG SERIAL COMPLETO COM AMBOS OS VALORES =====
+            Serial.printf("=== CÁLCULO EC CONTROLLER (COMPLETO) ===\n");
+            Serial.printf("📐 Equação: u(t) = (V / k × q) × e\n");
+            Serial.printf("📊 Parâmetros: V=%.1fL, k=%.3f\n", volume, k);
+            Serial.printf("🎯 EC Atual: %.1f µS/cm\n", ecAtual);
+            Serial.printf("🎯 EC Setpoint: %.1f µS/cm\n", ecSetpoint);
+            Serial.printf("📏 Erro (e): %.1f µS/cm\n", error);
+            Serial.printf("💧 u(t) VOLUME a dosar: %.3f ml\n", utResult);
+            Serial.printf("⏱️  Tempo de dosagem: %.3f segundos\n", tempoSegundos);
+            Serial.printf("🔄 Vazão peristáltica: %.3f ml/s | %.3f s/ml\n", flowRateMLperS, flowRateSperML);
+            Serial.printf("🧮 Cálculo: %.3f ml × %.3f s/ml = %.3f s\n", utResult, flowRateSperML, tempoSegundos);
+            Serial.printf("⚡ Ganho físico previsto: %.1f µS/cm\n", ((k * utResult) / volume));
+            Serial.printf("==========================================\n");
             
             // Enviar resposta
             AsyncWebServerResponse *jsonResponse = request->beginResponse(200, "application/json", response);
@@ -351,6 +363,71 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
         } else {
             request->send(500, "text/plain", "HydroControl not available");
         }
+    });
+
+    // ===== ROTA PARA RECEBER PROPORÇÕES DINÂMICAS =====
+    server.on("/nutrient-proportions", HTTP_POST, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "OK");
+    }, NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (!hydroControlRef) {
+            Serial.println("❌ HydroControl não disponível para proporções");
+            return;
+        }
+        
+        DynamicJsonDocument doc(1024);
+        deserializeJson(doc, data, len);
+        
+        // Extrair proporções individuais
+        float growRatio = doc["grow"].as<float>();
+        float microRatio = doc["micro"].as<float>();
+        float bloomRatio = doc["bloom"].as<float>();
+        float calmagRatio = doc["calmag"].as<float>();
+        
+        Serial.println("\n📊 PROPORÇÕES RECEBIDAS DA INTERFACE:");
+        Serial.printf("   Grow: %.3f (%.1f%%)\n", growRatio, growRatio * 100);
+        Serial.printf("   Micro: %.3f (%.1f%%)\n", microRatio, microRatio * 100);
+        Serial.printf("   Bloom: %.3f (%.1f%%)\n", bloomRatio, bloomRatio * 100);
+        Serial.printf("   CalMag: %.3f (%.1f%%)\n", calmagRatio, calmagRatio * 100);
+        
+        // Atualizar proporções no HydroControl
+        hydroControlRef->setNutrientProportions(
+            String(growRatio, 3), String(microRatio, 3), 
+            String(bloomRatio, 3), String(calmagRatio, 3)
+        );
+    });
+
+    // ===== ROTA PARA CANCELAR AUTO EC =====
+    server.on("/cancel-auto-ec", HTTP_POST, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "OK");
+    }, NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (!hydroControlRef) {
+            Serial.println("❌ HydroControl não disponível para cancelar Auto EC");
+            return;
+        }
+        
+        Serial.println("\n" + String('!', 80));
+        Serial.println("🛑 CANCELAMENTO AUTO EC SOLICITADO PELA INTERFACE");
+        Serial.println(String('!', 80));
+        
+        // 1. Desativar controle automático
+        hydroControlRef->enableAutoEC(false);
+        Serial.println("❌ Auto EC DESATIVADO");
+        
+        // 2. Cancelar dosagem sequencial em andamento
+        hydroControlRef->cancelCurrentDosage();
+        Serial.println("🛑 Dosagem sequencial CANCELADA");
+        
+        // 3. Desligar todos os relés por segurança
+        hydroControlRef->emergencyStopAllRelays();
+        Serial.println("⚡ Todos os relés DESLIGADOS por segurança");
+        
+        Serial.println(String('-', 80));
+        Serial.println("✅ CANCELAMENTO COMPLETO - SISTEMA PARADO");
+        Serial.println("📊 Status: Auto EC desativado, dosagem parada, relés desligados");
+        Serial.println(String('!', 80) + "\n");
+        
+        // Mostrar no display
+        hydroControlRef->showMessage("Auto EC Cancelado!");
     });
 
     Serial.println("Servidor HTTP iniciado");
