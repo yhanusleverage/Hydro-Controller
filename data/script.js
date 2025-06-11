@@ -34,7 +34,7 @@ const globalState = {
         currentECValue: 0,
         intervaloBetweenNutrients: 0,  // removido valor padrão
         intervaloAutoEC: 0             // removido valor padrão
-    },
+    }
     
     // Callbacks para notificação de mudanças
     listeners: []
@@ -1254,9 +1254,9 @@ function updateEquationDisplay() {
         
         // ===== NOVA EQUAÇÃO DE ACCURACY =====
         // EC(∞) = EC(0) + (k × q/v) × Kp × e  → equação proporcional
-        const A = (k * flowRate / volume);  // CORRIGIDO: Removido * 1000
+        const A = (k * flowRate * error) / (volume * 1000);  // CORRIGIDO: Dinâmica!
         const Kp = 1.0; // Ganho proporcional
-        const ecFinalPrevisto = ecAtual + (A * Kp * error);
+        const ecFinalPrevisto = ecAtual + A;  // CORRIGIDO: Sem duplicação
         
         // Atualizar estado global com EC atual
         globalState.control.currentECValue = ecAtual;
@@ -1272,7 +1272,7 @@ function updateEquationDisplay() {
         const timeElement = document.getElementById('eq-time');
         const ecGainElement = document.getElementById('eq-ec-gain');
         
-        if (resultElement) resultElement.textContent = `${utSegundos.toFixed(3)}`;  // u(t) em SEGUNDOS
+        if (resultElement) resultElement.textContent = `${utSegundos.toFixed(1)}`;  // u(t) em SEGUNDOS
         if (timeElement) timeElement.textContent = `${(1/flowRate).toFixed(3)} s/ml`;  // Conversão CORRIGIDA
         
         // Calcular volume correspondente: u(t) × flowRate = volume em ML
@@ -1374,16 +1374,16 @@ function updateEquationDisplay() {
             
             // Aplicar limitações (como no Controller.cpp)
             if (utSegundosLocal < 0) utSegundosLocal = 0;
-            if (utSegundosLocal > 10.0) utSegundosLocal = 10.0;
+            // REMOVIDO: if (utSegundosLocal > 10.0) utSegundosLocal = 10.0;
             
             // Calcular volume correspondente: u(t) × flowRate = volume em ML
             volumeMLLocal = utSegundosLocal * flowRate;
         }
         
-        // ===== EQUAÇÃO DE ACCURACY LOCAL =====
-        const ALocal = (k * flowRate / volume) * errorLocal;  // CORRIGIDO: Removido * 1000
+        // ===== EQUAÇÃO DE ACCURACY LOCAL (DINÂMICA) =====
+        const ALocal = (k * flowRate * errorLocal) / (volume * 1000);  // CORRIGIDO: Dinâmica!
         const KpLocal = 1.0;
-        const ecFinalPrevistoLocal = currentECValue + (ALocal * KpLocal);
+        const ecFinalPrevistoLocal = currentECValue + ALocal;  // CORRIGIDO: Sem duplicação
         
         // Calcular distribuição proporcional usando volume calculado
         const distribution = calculateProportionalDistribution(volumeMLLocal);
@@ -1614,7 +1614,7 @@ ${distribution.map(item =>
 ✅ Sistema sequencial ativo no ESP32!`);
         
         // Atualizar interface
-        communicationMonitor.updateECInfo(totalUt.toFixed(3), `${distribution.length} nutrientes`, distribution.map(d => d.relay).join(','));
+        communicationMonitor.updateECInfo(totalUt, `${distribution.length} nutrientes`, distribution.map(d => d.relay).join(','));
         
     })
     .catch(error => {
