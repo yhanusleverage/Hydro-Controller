@@ -108,7 +108,7 @@ private:
     
     // Pinos e configurações
     static const int PH_PIN = 35; //pino do pH
-    static const int TEMP_PIN = 33; //pino da temperatura
+    static const int TEMP_PIN = 32; //pino da temperatura
     static const int TDS_PIN = 34; //pino do TDS
     
     // Objetos dos sensores

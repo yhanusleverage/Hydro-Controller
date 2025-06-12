@@ -11,6 +11,15 @@ const char* password = "fox8gqyb34";
 HydroControl hydroControl;
 WebServerManager webServer;
 
+// ===== SISTEMA DE TIMING NÃO-BLOQUEANTE =====
+unsigned long lastUpdate = 0;
+const unsigned long UPDATE_INTERVAL = 100; // 100ms em vez de 1000ms
+unsigned long lastSensorUpdate = 0;
+const unsigned long SENSOR_INTERVAL = 250; // Sensores a cada 250ms
+
+// ===== TIMER NÃO-BLOQUEANTE PARA REDUZIR LATÊNCIA =====
+unsigned long lastMainUpdate = 0;
+
 void setup() {
     Serial.begin(115200);
     
@@ -47,12 +56,20 @@ void setup() {
     );
 
     Serial.println("Sistema inicializado!");
+    Serial.println("🚀 LATÊNCIA OTIMIZADA: delay(1000) → millis()");
 }
 
 void loop() {
-    // Atualiza sensores, display e timers dos relés
-    hydroControl.update();
+    // ===== SUBSTITUIR delay(1000) POR TIMER NÃO-BLOQUEANTE =====
+    unsigned long currentTime = millis();
     
-    // Delay para não sobrecarregar
-    delay(1000);
+    if (currentTime - lastMainUpdate >= 200) {  // 200ms em vez de 1000ms
+        lastMainUpdate = currentTime;
+        
+        // Atualiza sensores, display e timers dos relés
+        hydroControl.update();
+    }
+    
+    // ===== SEM delay(1000) BLOQUEANTE =====
+    // Sistema agora responde 5x mais rápido (200ms vs 1000ms)
 }

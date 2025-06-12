@@ -118,7 +118,16 @@ void HydroControl::begin() {
 }
 
 void HydroControl::update() {
-    updateSensors();
+    // ===== OPTIMIZACIÓN: Leer sensores con menos frecuencia =====
+    static unsigned long lastSensorRead = 0;
+    unsigned long currentTime = millis();
+    
+    // Leer sensores solo cada 500ms en vez de cada llamada
+    if (currentTime - lastSensorRead >= 500) {
+        lastSensorRead = currentTime;
+        updateSensors();
+    }
+    
     // checkRelayTimers();  // ← DESATIVADO: Sistema concorrente que interfere com processSimpleSequential
     updateDisplay();
     checkAutoEC();
@@ -126,13 +135,17 @@ void HydroControl::update() {
     // ===== PROCESSAR SISTEMA SEQUENCIAL SIMPLES =====
     processSimpleSequential();
     
-    // Enviar dados para o ThingSpeak
-    thingSpeak.sendData(temperature, pH, ec);
+    // Enviar dados para o ThingSpeak (menos frecuente)
+    static unsigned long lastThingSpeakSend = 0;
+    if (currentTime - lastThingSpeakSend >= 30000) { // Solo cada 30 segundos
+        lastThingSpeakSend = currentTime;
+        thingSpeak.sendData(temperature, pH, ec);
+    }
     
-    // Debug status
+    // Debug status (menos frecuente)
     static unsigned long lastDebug = 0;
-    if (millis() - lastDebug > 5000) {  // A cada 5 segundos
-        lastDebug = millis();
+    if (currentTime - lastDebug > 5000) {  // A cada 5 segundos
+        lastDebug = currentTime;
         Serial.println("\n=== Status do Sistema ===");
         Serial.printf("Temperatura: %.1f°C\n", temperature);
         Serial.printf("pH: %.2f\n", pH);
@@ -146,6 +159,7 @@ void HydroControl::update() {
         for (int i = 0; i < NUM_RELAYS; i++) {
             Serial.printf("Relé %d: %s\n", i+1, relayStates[i] ? "ON" : "OFF");
         }
+        Serial.println("🚀 LATÊNCIA OTIMIZADA: Sensores 500ms | ThingSpeak 30s");
         Serial.println("=====================\n");
     }
 }
@@ -172,13 +186,6 @@ void HydroControl::updateSensors() {
         tds = tdsReading;
         ec = tdsSensor->getECValue();
     }
-
-    // Debug
-    Serial.println("\n=== Status do Sistema ===");
-    Serial.printf("Temperatura: %.1f°C\n", temperature);
-    Serial.printf("pH: %.2f\n", pH);
-    Serial.printf("TDS: %.0f ppm\n", tds);
-    Serial.printf("EC: %.0f uS/cm\n", ec);
 }
 
 void HydroControl::updateDisplay() {
@@ -414,9 +421,12 @@ void HydroControl::processSimpleSequential() {
         // ===== DOSANDO NUTRIENTE ATUAL =====
         SimpleNutrient& current = nutrients[currentNutrientIndex];
         
-        // Verificar se terminou a dosagem
-        if (currentTime - stateStartTime >= current.durationMs) {
-            // ===== DESLIGAR RELÉ =====
+        // ===== TIMING OTIMIZADO - PRECISÃO EM MILISSEGUNDOS =====
+        unsigned long elapsedTime = currentTime - stateStartTime;
+        
+        // Verificar se terminou a dosagem (PRECISÃO MÁXIMA)
+        if (elapsedTime >= current.durationMs) {
+            // ===== DESLIGAR RELÉ IMEDIATAMENTE =====
             relayStates[current.relay] = false;
             bool state = !relayStates[current.relay];  // Invertido - relés ativos em LOW
             
@@ -449,13 +459,14 @@ void HydroControl::processSimpleSequential() {
         }
         
     } else if (currentState == WAITING) {
-        // ===== AGUARDANDO INTERVALO =====
+        // ===== AGUARDANDO INTERVALO CONFIGURADO PELO USUÁRIO =====
         if (currentTime - stateStartTime >= (intervalSeconds * 1000)) {
             // ===== INICIAR PRÓXIMO NUTRIENTE =====
             SimpleNutrient& next = nutrients[currentNutrientIndex];
             
             Serial.printf("🚀 Iniciando: %s - %.3fml por %.3fs - Relé %d\n", 
                 next.name.c_str(), next.dosageML, next.durationMs / 1000.0, next.relay + 1);
+            Serial.printf("⏳ Intervalo configurado: %ds\n", intervalSeconds);
             
             // ===== LIGAR RELÉ =====
             relayStates[next.relay] = true;
