@@ -99,6 +99,7 @@ public:
     // ===== FUNÇÕES DE EMERGÊNCIA E CANCELAMENTO =====
     void cancelCurrentDosage();        // Cancelar dosagem em andamento
     void emergencyStopAllRelays();     // Parar todos os relés imediatamente
+    void emergencySystemReset();       // 🚨 RESET EMERGENCIAL TOTAL - Para tudo e resetea estados
     bool isDosageActive() const;       // Verificar se há dosagem ativa
 
 private:

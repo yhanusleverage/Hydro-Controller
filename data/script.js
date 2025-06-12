@@ -920,6 +920,11 @@ function fetchSensorData() {
             
             // Atualizar gráfico
             updateChart(data.ph, data.ec);
+            
+            // ===== ATUALIZAR TOGGLES DOS RELÉS =====
+            if (data.relayStates && Array.isArray(data.relayStates)) {
+                updateRelayToggles(data.relayStates);
+            }
         })
         .catch(error => {
             console.error('Erro ao buscar dados:', error);
@@ -927,16 +932,59 @@ function fetchSensorData() {
 }
 
 function toggleRelay(relay, seconds = 0) {
-    const url = `/toggle${relay}` + (seconds ? `?seconds=${seconds}` : '');
+    const relayNumber = relay + 1;
+    const url = `/toggle${relayNumber}${seconds > 0 ? `?seconds=${seconds}` : ''}`;
+    
+    console.log(`🔄 Alternando relé ${relayNumber}${seconds > 0 ? ` por ${seconds}s` : ''}`);
+    
     fetch(url)
         .then(response => {
             if (!response.ok) {
                 throw new Error('Erro ao controlar relé');
             }
+            console.log(`✅ Relé ${relayNumber} alternado com sucesso`);
+            
+            // Atualizar estado visual imediatamente
+            const toggleSwitch = document.getElementById(`relay-${relayNumber}-toggle`);
+            const statusText = document.getElementById(`relay-${relayNumber}-status`);
+            
+            if (toggleSwitch && statusText) {
+                const isCurrentlyActive = toggleSwitch.classList.contains('active');
+                
+                if (seconds > 0) {
+                    // Ativar temporariamente
+                    toggleSwitch.classList.add('active');
+                    statusText.textContent = `ON (${seconds}s)`;
+                    statusText.className = 'relay-status active';
+                    
+                    // Desativar após o tempo especificado
+                    setTimeout(() => {
+                        toggleSwitch.classList.remove('active');
+                        statusText.textContent = 'OFF';
+                        statusText.className = 'relay-status';
+                    }, seconds * 1000);
+                } else {
+                    // Toggle simples
+                    if (isCurrentlyActive) {
+                        toggleSwitch.classList.remove('active');
+                        statusText.textContent = 'OFF';
+                        statusText.className = 'relay-status';
+                    } else {
+                        toggleSwitch.classList.add('active');
+                        statusText.textContent = 'ON';
+                        statusText.className = 'relay-status active';
+                    }
+                }
+            }
+            
+            // Buscar estados atuais após um pequeno delay
+            setTimeout(() => {
+                fetchSensorData();
+            }, 500);
         })
         .catch(error => {
-            console.error('Erro:', error);
-            alert('Erro ao controlar relé');
+            console.error(`❌ Erro ao alternar relé ${relayNumber}:`, error);
+            alert(`Erro ao controlar relé ${relayNumber}: ${error.message}`);
         });
 }
 
@@ -1078,6 +1126,14 @@ function setupOtherEventListeners() {
         cancelBtn.removeEventListener('click', handleCancelAutoEC);
         cancelBtn.addEventListener('click', handleCancelAutoEC);
         console.log('✅ Listener do botão cancelar Auto EC configurado');
+    }
+    
+    // ===== 🚨 EVENT LISTENER PARA RESET EMERGENCIAL =====
+    const emergencyResetBtn = document.getElementById('emergency-reset');
+    if (emergencyResetBtn) {
+        emergencyResetBtn.removeEventListener('click', handleEmergencyReset);
+        emergencyResetBtn.addEventListener('click', handleEmergencyReset);
+        console.log('✅ Listener do botão RESET EMERGENCIAL configurado');
     }
     
     // COMENTADO - BOTÃO DOSAGEM PROPORCIONAL REMOVIDO
@@ -1268,9 +1324,9 @@ function updateEquationDisplay() {
         
         // ===== NOVA EQUAÇÃO DE ACCURACY =====
         // EC(∞) = EC(0) + (k × q/v) × Kp × e  → equação proporcional
-        const A = (k * flowRate * error) / (volume * 1000);  // CORRIGIDO: Dinâmica!
+        const A = ((k * flowRate) / (volume * 1000)) * error;  // CORRIGIDO: Dinâmica!
         const Kp = 1.0; // Ganho proporcional
-        const ecFinalPrevisto = ecAtual + A;  // CORRIGIDO: Sem duplicação
+        const ecFinalPrevisto = ecAtual + A  * Kp * error;  // CORRIGIDO: Sem duplicação
         
         // Atualizar estado global com EC atual
         globalState.control.currentECValue = ecAtual;
@@ -1399,7 +1455,7 @@ function updateEquationDisplay() {
         // ===== EQUAÇÃO DE ACCURACY LOCAL (DINÂMICA) =====
         const ALocal = (k * flowRate * errorLocal) / (volume * 1000);  // CORRIGIDO: Dinâmica!
         const KpLocal = 1.0;
-        const ecFinalPrevistoLocal = currentECValue + ALocal;  // CORRIGIDO: Sem duplicação
+        const ecFinalPrevistoLocal = currentECValue + ALocal * KpLocal * errorLocal;  // NOVA FÓRMULA: A × Kp × error
         
         // Calcular distribuição proporcional usando volume calculado
         const distribution = calculateProportionalDistribution(volumeMLLocal);
@@ -1935,10 +1991,116 @@ function setupGlobalStateListeners() {
 
 // Função para buscar estados dos relés
 function fetchRelayStates() {
-    // Esta função pode ser implementada se houver um endpoint no ESP32 para isso
-    // Por enquanto, vamos só fazer log
-    console.log('📡 Buscando estados dos relés...');
-    // TODO: Implementar endpoint /relay-states no ESP32 se necessário
+    console.log('📡 Buscando estados dos relés e criando toggles...');
+    
+    // Criar toggles dos relés se não existirem
+    createRelayToggles();
+    
+    // Buscar estados atuais dos relés
+    fetch('/sensors')
+        .then(response => response.json())
+        .then(data => {
+            if (data.relayStates && Array.isArray(data.relayStates)) {
+                console.log('✅ Estados dos relés recebidos:', data.relayStates);
+                updateRelayToggles(data.relayStates);
+            }
+        })
+        .catch(error => {
+            console.error('❌ Erro ao buscar estados dos relés:', error);
+        });
+}
+
+// ===== FUNÇÃO PARA CRIAR TOGGLES DOS RELÉS =====
+function createRelayToggles() {
+    const buttonsContainer = document.getElementById('buttons');
+    if (!buttonsContainer) {
+        console.error('❌ Container de botões não encontrado');
+        return;
+    }
+    
+    // Limpar container se já tiver conteúdo
+    buttonsContainer.innerHTML = '';
+    
+    console.log('🔧 Criando toggles dos relés...');
+    
+    // Criar 8 toggles para os relés
+    for (let i = 0; i < 8; i++) {
+        const relayNumber = i + 1;
+        
+        // Container do relé
+        const relayContainer = document.createElement('div');
+        relayContainer.className = 'relay-control';
+        relayContainer.id = `relay-${relayNumber}-container`;
+        
+        // Label do relé
+        const label = document.createElement('label');
+        label.className = 'relay-label';
+        label.textContent = `Relé ${relayNumber}`;
+        
+        // Toggle switch
+        const toggleContainer = document.createElement('div');
+        toggleContainer.className = 'toggle-container';
+        
+        const toggleSwitch = document.createElement('div');
+        toggleSwitch.className = 'toggle-switch';
+        toggleSwitch.id = `relay-${relayNumber}-toggle`;
+        toggleSwitch.setAttribute('data-relay', relayNumber);
+        
+        const toggleSlider = document.createElement('div');
+        toggleSlider.className = 'toggle-slider';
+        
+        const toggleButton = document.createElement('div');
+        toggleButton.className = 'toggle-button';
+        
+        // Status text
+        const statusText = document.createElement('span');
+        statusText.className = 'relay-status';
+        statusText.id = `relay-${relayNumber}-status`;
+        statusText.textContent = 'OFF';
+        
+        // Montar estrutura
+        toggleSlider.appendChild(toggleButton);
+        toggleSwitch.appendChild(toggleSlider);
+        toggleContainer.appendChild(toggleSwitch);
+        
+        relayContainer.appendChild(label);
+        relayContainer.appendChild(toggleContainer);
+        relayContainer.appendChild(statusText);
+        
+        // Event listener para o toggle
+        toggleSwitch.addEventListener('click', () => {
+            const currentState = toggleSwitch.classList.contains('active');
+            toggleRelay(i, 0); // Toggle simples
+            console.log(`🔄 Toggle relé ${relayNumber}: ${currentState ? 'OFF' : 'ON'}`);
+        });
+        
+        buttonsContainer.appendChild(relayContainer);
+    }
+    
+    console.log('✅ Toggles dos relés criados com sucesso!');
+}
+
+// ===== FUNÇÃO PARA ATUALIZAR ESTADOS DOS TOGGLES =====
+function updateRelayToggles(relayStates) {
+    for (let i = 0; i < 8; i++) {
+        const relayNumber = i + 1;
+        const toggleSwitch = document.getElementById(`relay-${relayNumber}-toggle`);
+        const statusText = document.getElementById(`relay-${relayNumber}-status`);
+        
+        if (toggleSwitch && statusText) {
+            const isActive = relayStates[i];
+            
+            if (isActive) {
+                toggleSwitch.classList.add('active');
+                statusText.textContent = 'ON';
+                statusText.className = 'relay-status active';
+            } else {
+                toggleSwitch.classList.remove('active');
+                statusText.textContent = 'OFF';
+                statusText.className = 'relay-status';
+            }
+        }
+    }
 }
 
 // ===== FUNÇÃO PARA CANCELAR AUTO EC =====
@@ -1981,6 +2143,72 @@ async function handleCancelAutoEC() {
     } catch (error) {
         console.error('❌ Erro ao cancelar Auto EC:', error);
         showNotification('❌ Erro de Conexão', 'Não foi possível cancelar o Auto EC', 'error');
+    }
+}
+
+// ===== 🚨 FUNÇÃO PARA RESET EMERGENCIAL TOTAL =====
+async function handleEmergencyReset() {
+    try {
+        console.log('🚨 INICIANDO RESET EMERGENCIAL...');
+        
+        // Confirmação dupla para emergência
+        if (!confirm('🚨 ATENÇÃO - RESET EMERGENCIAL TOTAL! 🚨\n\n⚠️ Esta ação irá PARAR TUDO IMEDIATAMENTE:\n\n• Todos os 8 relés serão DESLIGADOS\n• Auto EC será DESATIVADO\n• Dosagem em curso será CANCELADA\n• Todos os estados serão RESETADOS\n• Sistema voltará ao estado IDLE\n\n🚨 TEM CERTEZA ABSOLUTA?')) {
+            return;
+        }
+        
+        // Segunda confirmação para emergência crítica
+        if (!confirm('🚨 CONFIRMAÇÃO FINAL 🚨\n\nEsta é uma EMERGÊNCIA TOTAL que vai PARAR TODO O SISTEMA.\n\nAperte OK apenas se for uma EMERGÊNCIA REAL.\n\n⚠️ CONTINUAR?')) {
+            return;
+        }
+        
+        console.log('🚨 Executando RESET EMERGENCIAL TOTAL...');
+        
+        // Enviar comando de emergência
+        const response = await fetch('/emergency-reset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action: 'emergency-reset-total',
+                timestamp: Date.now(),
+                source: 'web-interface'
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ RESET EMERGENCIAL executado com sucesso');
+            
+            // RESETAR INTERFACE COMPLETAMENTE
+            // 1. Resetar Auto EC
+            updateState('control', 'autoECEnabled', false);
+            updateState('control', 'lastDosage', 0);
+            updateState('control', 'currentECValue', 0);
+            
+            // 2. Resetar todos os parâmetros
+            updateState('system', 'ecSetpoint', 0);
+            
+            // 3. Atualizar todas as interfaces
+            updateECControlUI();
+            
+            // 4. Mostrar notificação de emergência
+            alert('🚨 RESET EMERGENCIAL EXECUTADO! 🚨\n\n✅ SISTEMA TOTALMENTE PARADO:\n\n• Todos os relés: DESLIGADOS\n• Auto EC: DESATIVADO\n• Dosagem: CANCELADA\n• Estados: RESETADOS\n• Status: IDLE SEGURO\n\n🟢 Sistema pronto para nova configuração');
+            
+            // 5. Log no monitor de comunicação
+            communicationMonitor.addLog('emergency', '🚨 RESET EMERGENCIAL TOTAL executado com sucesso');
+            
+        } else {
+            const errorText = await response.text();
+            console.error('❌ Falha no RESET EMERGENCIAL:', response.status, errorText);
+            alert('❌ FALHA NO RESET EMERGENCIAL!\n\nErro: ' + response.status + '\n\nTente novamente ou use o botão físico de emergência.');
+        }
+        
+    } catch (error) {
+        console.error('❌ Erro crítico no RESET EMERGENCIAL:', error);
+        alert('❌ ERRO CRÍTICO!\n\nNão foi possível executar o RESET EMERGENCIAL.\n\nUSE O BOTÃO FÍSICO DE EMERGÊNCIA ou reinicie o ESP32 manualmente!');
+        
+        // Log crítico
+        communicationMonitor.addLog('error', '🚨 FALHA CRÍTICA no Reset Emergencial: ' + error.message);
     }
 }
 
@@ -2201,6 +2429,62 @@ function handleClearNutritionPlan() {
     } else {
         console.log('❌ Limpeza cancelada pelo usuário');
     }
+}
+
+// ===== FUNÇÃO DE SIMULAÇÃO DA ACCURACY =====
+function simularAccuracy(ecSetpoint, ecAtual, volume, flowRate, baseDose, totalMlPorLitro) {
+    console.log('\n🧪 ===== SIMULAÇÃO DE ACCURACY =====');
+    console.log(`📊 Parâmetros de entrada:`);
+    console.log(`   • EC Setpoint: ${ecSetpoint} µS/cm`);
+    console.log(`   • EC Atual: ${ecAtual} µS/cm`);
+    console.log(`   • Volume: ${volume} L`);
+    console.log(`   • Flow Rate: ${flowRate} ml/s`);
+    console.log(`   • Base Dose: ${baseDose} µS/cm`);
+    console.log(`   • Total ml/L: ${totalMlPorLitro} ml/L`);
+    
+    // Calcular parâmetros
+    const k = totalMlPorLitro > 0 ? baseDose / totalMlPorLitro : 0;
+    const error = ecSetpoint - ecAtual;
+    const Kp = 1.0;
+    
+    console.log(`\n🔧 Cálculos intermediários:`);
+    console.log(`   • k = ${baseDose}/${totalMlPorLitro} = ${k.toFixed(3)}`);
+    console.log(`   • error = ${ecSetpoint} - ${ecAtual} = ${error.toFixed(1)} µS/cm`);
+    console.log(`   • Kp = ${Kp}`);
+    
+    // Calcular A (incremento de accuracy)
+    const A = (k * flowRate * error) / (volume * 1000);
+    
+    console.log(`\n⚡ Cálculo de A:`);
+    console.log(`   • A = (k × flowRate × error) / (volume × 1000)`);
+    console.log(`   • A = (${k.toFixed(3)} × ${flowRate} × ${error.toFixed(1)}) / (${volume} × 1000)`);
+    console.log(`   • A = ${A.toFixed(6)} µS/cm`);
+    
+    // NOVA FÓRMULA: EC(∞) = EC(0) + A × Kp × error
+    const ecFinalPrevisto = ecAtual + A * Kp * error;
+    
+    console.log(`\n🎯 NOVA FÓRMULA DE ACCURACY:`);
+    console.log(`   • EC(∞) = EC(0) + A × Kp × error`);
+    console.log(`   • EC(∞) = ${ecAtual} + ${A.toFixed(6)} × ${Kp} × ${error.toFixed(1)}`);
+    console.log(`   • EC(∞) = ${ecAtual} + ${(A * Kp * error).toFixed(2)}`);
+    console.log(`   • EC(∞) = ${ecFinalPrevisto.toFixed(1)} µS/cm`);
+    
+    const incrementoTotal = ecFinalPrevisto - ecAtual;
+    console.log(`\n📈 Resultado final:`);
+    console.log(`   • Incremento total: ${incrementoTotal.toFixed(2)} µS/cm`);
+    console.log(`   • EC inicial: ${ecAtual} µS/cm`);
+    console.log(`   • EC final previsto: ${ecFinalPrevisto.toFixed(1)} µS/cm`);
+    console.log(`   • Diferença do setpoint: ${Math.abs(ecFinalPrevisto - ecSetpoint).toFixed(1)} µS/cm`);
+    
+    console.log('🧪 ===== FIM DA SIMULAÇÃO =====\n');
+    
+    return {
+        A: A,
+        ecFinalPrevisto: ecFinalPrevisto,
+        incrementoTotal: incrementoTotal,
+        k: k,
+        error: error
+    };
 }
 
 // ===== FUNÇÃO PARA ATUALIZAR SEÇÃO DE ACCURACY =====

@@ -430,6 +430,23 @@ void WebServerManager::setupServer(float& currentTemp, float& currentPH, float& 
         hydroControlRef->showMessage("Auto EC Cancelado!");
     });
 
+    // ===== 🚨 ROTA PARA RESET EMERGENCIAL TOTAL =====
+    server.on("/emergency-reset", HTTP_POST, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "EMERGENCY RESET EXECUTED");
+    }, NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (!hydroControlRef) {
+            Serial.println("❌ HydroControl não disponível para RESET EMERGENCIAL");
+            return;
+        }
+        
+        Serial.println("\n🚨 EMERGÊNCIA TOTAL SOLICITADA PELA INTERFACE WEB 🚨");
+        
+        // EXECUTAR RESET EMERGENCIAL TOTAL
+        hydroControlRef->emergencySystemReset();
+        
+        Serial.println("✅ RESET EMERGENCIAL EXECUTADO VIA WEB INTERFACE");
+    });
+
     Serial.println("Servidor HTTP iniciado");
 }
 

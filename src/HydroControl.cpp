@@ -795,3 +795,91 @@ void HydroControl::emergencyStopAllRelays() {
 bool HydroControl::isDosageActive() const {
     return (currentState != IDLE);
 }
+
+// ===== 🚨 RESET EMERGENCIAL TOTAL - MÁS POTENTE QUE TUDO =====
+
+void HydroControl::emergencySystemReset() {
+    Serial.println("\n================================================================================");
+    Serial.println("🚨🚨🚨 EMERGÊNCIA TOTAL - RESET COMPLETO DO SISTEMA 🚨🚨🚨");
+    Serial.println("================================================================================");
+    
+    // ===== 1. PARAR TODOS OS RELÉS IMEDIATAMENTE =====
+    Serial.println("🔴 FASE 1: DESLIGANDO TODOS OS RELÉS...");
+    emergencyStopAllRelays();  // Usar função existente para compatibilidade
+    
+    // ===== 2. RESETAR SISTEMA SEQUENCIAL COMPLETAMENTE =====
+    Serial.println("🔄 FASE 2: RESETANDO SISTEMA SEQUENCIAL...");
+    currentState = IDLE;
+    totalNutrients = 0;
+    currentNutrientIndex = 0;
+    stateStartTime = 0;
+    intervalSeconds = 0;
+    
+    // Limpar array de nutrientes
+    for (int i = 0; i < 6; i++) {
+        nutrients[i].name = "";
+        nutrients[i].relay = 0;
+        nutrients[i].dosageML = 0;
+        nutrients[i].durationMs = 0;
+    }
+    
+    // ===== 3. DESATIVAR AUTO EC COMPLETAMENTE =====
+    Serial.println("❌ FASE 3: DESATIVANDO AUTO EC...");
+    autoECEnabled = false;
+    lastECCheck = 0;
+    autoECIntervalSeconds = 0;
+    
+    // ===== 4. RESETAR SISTEMA LEGADO (COMPATIBILIDADE) =====
+    Serial.println("🔧 FASE 4: LIMPANDO SISTEMA LEGADO...");
+    totalScheduledDosages = 0;
+    currentDosageIndex = 0;
+    sequentialDosageActive = false;
+    waitingInterval = false;
+    lastSequenceCheck = 0;
+    intervalBetweenDosages = 0;
+    intervalStartTime = 0;
+    
+    // ===== 5. RESETAR PROPORÇÕES DINÂMICAS =====
+    Serial.println("📊 FASE 5: RESETANDO PROPORÇÕES...");
+    activeDynamicNutrients = 0;
+    for (int i = 0; i < 6; i++) {
+        dynamicProportions[i].name = "";
+        dynamicProportions[i].relay = 0;
+        dynamicProportions[i].ratio = 0.0;
+        dynamicProportions[i].active = false;
+    }
+    
+    // ===== 6. LIMPAR TIMERS E CONTADORES =====
+    Serial.println("⏰ FASE 6: LIMPANDO TIMERS...");
+    for (int i = 0; i < NUM_RELAYS; i++) {
+        startTimes[i] = 0;
+        timerSeconds[i] = 0;
+        // relayStates já foi resetado por emergencyStopAllRelays()
+    }
+    
+    // ===== 7. RESETAR CONTROLADOR EC =====
+    Serial.println("🎛️ FASE 7: RESETANDO CONTROLADOR EC...");
+    ecSetpoint = 0.0;
+    // Manter parâmetros do controlador (flowRate, volume, etc.) para compatibilidade
+    
+    // ===== 8. DISPLAY DE EMERGÊNCIA =====
+    Serial.println("🖥️ FASE 8: ATUALIZANDO DISPLAY...");
+    showMessage("EMERGENCIA!");
+    // Remover delays para resposta instantânea
+    showMessage("Sistema Resetado");
+    showMessage("IDLE - Seguro");
+    
+    // ===== 9. LOG FINAL DE CONFIRMAÇÃO =====
+    Serial.println("--------------------------------------------------------------------------------");
+    Serial.println("✅ RESET EMERGENCIAL COMPLETO EXECUTADO!");
+    Serial.println("📊 ESTADO ATUAL:");
+    Serial.println("   • Todos os relés: DESLIGADOS");
+    Serial.println("   • Sistema sequencial: IDLE");
+    Serial.println("   • Auto EC: DESATIVADO");
+    Serial.println("   • Dosagem: CANCELADA");
+    Serial.println("   • Timers: LIMPOS");
+    Serial.println("   • Estado: SEGURO");
+    Serial.println("--------------------------------------------------------------------------------");
+    Serial.println("🟢 SISTEMA PRONTO PARA NOVA CONFIGURAÇÃO");
+    Serial.println("================================================================================\n");
+}
